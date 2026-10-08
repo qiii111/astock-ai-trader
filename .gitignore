@@ -1,0 +1,22 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+# Local databases, exports and caches
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.csv
+*.xlsx
+Astock/data/
+data/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
