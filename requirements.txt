@@ -1,0 +1,22 @@
+# A股 AI 投资系统 —— 云端（GitHub Actions）运行依赖
+#
+# 说明：
+#   核心链路 daily_job.py 是**纯标准库**实现，本身不需要任何第三方包。
+#   下列依赖只服务于两件事：
+#     1. psycopg —— 写入 Neon PostgreSQL（必需）
+#     2. flask / pandas / numpy / markdown —— 可选的手机控制台与数据分析（本地部署用）
+#
+# 版本用「下限 + 主版本上限」约束，避免上游破坏性变更导致流水线突然变红。
+
+# ---- 必装：Neon PostgreSQL 驱动 ----
+psycopg[binary]>=3.1,<4.0
+
+# ---- 可选：手机控制台（Flask）----
+# 注意：tools/regression_tests.py 的 T5 用例需要 Flask 来验证空 Token 拒绝行为。
+# 若只跑 GitHub Actions 定时任务（run_cloud.py），Flask 并非必需。
+Flask>=3.0,<4.0
+Markdown>=3.5,<4.0
+
+# ---- 可选：数据分析 / 指标计算（本地研究用，GitHub Actions 不强制需要）----
+numpy>=1.26,<3.0
+pandas>=2.1,<3.0
