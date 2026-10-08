@@ -16,6 +16,8 @@ Neon PostgreSQL 账本层（云端执行版）。
 """
 import os
 import datetime
+import socket
+from urllib.parse import urlsplit
 
 try:
     import psycopg  # psycopg 3
@@ -63,20 +65,34 @@ def dsn() -> str:
 
 
 def connect():
-    """带重试的连接。设置 statement_timeout，避免慢查询悬死流水线。"""
+    """Connect to Neon over IPv4 when available; retain DNS hostname for TLS."""
     import time as _t
-    import psycopg as _pg
+
+    url = dsn()
+    hostname = urlsplit(url).hostname
+    if not hostname:
+        raise SystemExit("DATABASE_URL 缺少数据库主机名")
 
     last = None
     for attempt in range(CONNECT_RETRIES):
         try:
-            conn = _pg.connect(dsn(), row_factory=dict_row, autocommit=False,
-                               options=f"-c statement_timeout={STATEMENT_TIMEOUT_MS}")
-            return conn
-        except Exception as e:  # noqa: BLE001
+            # GitHub-hosted runners may lack IPv6 routes, while Neon DNS returns AAAA.
+            ipv4 = socket.getaddrinfo(
+                hostname, 5432, family=socket.AF_INET, type=socket.SOCK_STREAM
+            )[0][4][0]
+            return psycopg.connect(
+                url, hostaddr=ipv4, row_factory=dict_row, autocommit=False,
+                connect_timeout=10,
+                options=f"-c statement_timeout={STATEMENT_TIMEOUT_MS}",
+            )
+        except (OSError, psycopg.Error, IndexError) as e:
             last = e
-            _t.sleep(CONNECT_BACKOFF * (attempt + 1))
-    raise SystemExit(f"数据库连接失败（已重试 {CONNECT_RETRIES} 次）：{type(last).__name__}: {last}")
+            if attempt + 1 < CONNECT_RETRIES:
+                _t.sleep(CONNECT_BACKOFF * (attempt + 1))
+    # Never log connection exception text: drivers may include sensitive DSN data.
+    raise SystemExit(
+        f"数据库 IPv4 连接失败（已重试 {CONNECT_RETRIES} 次）：{type(last).__name__}"
+    )
 
 
 SCHEMA_SQL = """
