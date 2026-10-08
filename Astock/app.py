@@ -292,8 +292,10 @@ def _read_allowed() -> bool:
     这样做的原因：控制台会展示账户资金与持仓。若不设读取鉴权，
     任何知道 URL 的人都能看到持仓明细。
     """
+    # Fail closed: never expose holdings or account snapshots without a read token.
+    # Local development must explicitly set ASTOCK_READ_TOKEN as well.
     if not READ_TOKEN:
-        return True
+        return False
     supplied = (request.headers.get("X-Auth-Token")
                 or request.args.get("token")
                 or "")
