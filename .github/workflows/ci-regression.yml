@@ -1,0 +1,26 @@
+name: ci-regression
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt PyYAML
+      - name: Compile Python
+        run: python -m compileall -q Astock tools
+      - name: Offline self-test
+        run: python Astock/daily_job.py --selftest
+      - name: Validate workflow syntax
+        run: python -c "import yaml,glob; [yaml.safe_load(open(p,encoding='utf-8')) for p in glob.glob('.github/workflows/*.yml')]"
