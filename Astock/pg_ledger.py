@@ -82,16 +82,17 @@ def connect():
             )[0][4][0]
             return psycopg.connect(
                 url, hostaddr=ipv4, row_factory=dict_row, autocommit=False,
-                connect_timeout=10,
-                options=f"-c statement_timeout={STATEMENT_TIMEOUT_MS}",
+                connect_timeout=10, sslmode="require",
             )
         except (OSError, psycopg.Error, IndexError) as e:
             last = e
             if attempt + 1 < CONNECT_RETRIES:
                 _t.sleep(CONNECT_BACKOFF * (attempt + 1))
-    # Never log connection exception text: drivers may include sensitive DSN data.
+    # Never log exception text: drivers may include credentials in DSN errors.
+    state = getattr(last, "sqlstate", None) or "none"
     raise SystemExit(
-        f"数据库 IPv4 连接失败（已重试 {CONNECT_RETRIES} 次）：{type(last).__name__}"
+        f"数据库 IPv4 连接失败（已重试 {CONNECT_RETRIES} 次）："
+        f"{type(last).__name__} sqlstate={state}"
     )
 
 
