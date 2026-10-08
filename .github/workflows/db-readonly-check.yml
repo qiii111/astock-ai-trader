@@ -24,5 +24,39 @@ jobs:
             echo "::error::DATABASE_URL is not configured"
             exit 1
           fi
-      - name: Read-only Neon connectivity and schema check
-        run: python Astock/db_probe.py
+      - name: Read-only IPv4 Neon connection test
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, socket, sys
+          from urllib.parse import urlsplit
+          import psycopg
+
+          url = os.environ["DATABASE_URL"]
+          hostname = urlsplit(url).hostname
+          if not hostname:
+              print("Invalid DATABASE_URL: missing hostname")
+              sys.exit(1)
+
+          try:
+              records = socket.getaddrinfo(hostname, 5432, family=socket.AF_INET, type=socket.SOCK_STREAM)
+              ipv4 = records[0][4][0]
+          except (OSError, IndexError) as exc:
+              print("IPv4 DNS lookup failed:", type(exc).__name__)
+              sys.exit(1)
+
+          print("IPv4 DNS resolution succeeded")
+          try:
+              # hostaddr fixes the network destination; host stays unchanged for TLS hostname verification.
+              with psycopg.connect(url, hostaddr=ipv4, connect_timeout=10, sslmode="require") as conn:
+                  with conn.cursor() as cur:
+                      cur.execute("SELECT 1")
+                      ok = cur.fetchone()[0] == 1
+                  conn.rollback()
+              if not ok:
+                  raise RuntimeError("Unexpected SELECT 1 response")
+              print("NEON_IPV4_CONNECTION_OK")
+          except Exception as exc:
+              print("Neon IPv4 connection failed:", type(exc).__name__)
+              sys.exit(1)
+          PY
