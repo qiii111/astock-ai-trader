@@ -1,0 +1,48 @@
+name: daily-job
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Read-only test (no DB writes)"
+        type: boolean
+        required: true
+        default: true
+  schedule:
+    - cron: "30 7 * * 1-5"
+
+permissions:
+  contents: read
+concurrency:
+  group: astock-daily
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ASTOCK_PUSH_URL: ${{ secrets.ASTOCK_PUSH_URL }}
+      ASTOCK_INGEST_TOKEN: ${{ secrets.ASTOCK_INGEST_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Offline self-test
+        run: python Astock/daily_job.py --selftest
+      - name: READ-ONLY database probe
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: python Astock/db_probe.py
+      - name: init_ledger (write mode only)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}
+        run: python -c "import sys; sys.path.insert(0, 'Astock'); import pg_ledger; pg_ledger.init_ledger()"
+      - name: Execute read-only dry-run
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: python Astock/run_cloud.py --dry-run
+      - name: Execute daily simulated trades
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}
+        run: python Astock/run_cloud.py
