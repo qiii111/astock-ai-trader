@@ -18,6 +18,8 @@ concurrency:
 
 jobs:
   run:
+    # Scheduled writes are opt-in; manual read-only runs remain available.
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.ENABLE_ASTOCK_TRADING == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
