@@ -19,7 +19,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <label for="url">Supabase Project URL</label><input id="url" type="url" placeholder="https://你的项目.supabase.co" autocomplete="off">
 <label for="key">Publishable key（或旧版 anon public key）</label><input id="key" type="text" placeholder="sb_publishable_... 或 eyJ..." autocomplete="off">
 <button id="connect">连接并登录</button><p id="setupmsg" class="error"></p>
-<small>连接参数仅保存在当前浏览器的 sessionStorage；它们是公开客户端配置，不是数据库管理密钥。</small></section>
+<small>连接参数保存在当前浏览器的 localStorage，关闭网页后仍可使用；它们是公开客户端配置，不是数据库管理密钥。请勿在共享设备上使用。</small></section>
 <section class="card hidden" id="login"><h2>私人登录</h2>
 <label for="email">邮箱</label><input id="email" type="email" autocomplete="username">
 <label for="password">登录密码</label><input id="password" type="password" autocomplete="current-password">
@@ -51,11 +51,11 @@ const table=document.createElement('table');const columns=Object.keys(data[0]).f
 const tr=document.createElement('tr');columns.forEach(c=>{const th=document.createElement('th');th.textContent=c;tr.append(th)});table.append(tr);
 data.forEach(r=>{const row=document.createElement('tr');columns.forEach(c=>{const td=document.createElement('td');td.textContent=r[c]===null?'—':String(r[c]);row.append(td)});table.append(row)});$('holdings').append(table)
 }catch(e){message('datamsg','读取失败：'+safeErr(e)+'。请不要关闭 RLS；我们需要检查表结构和权限。')}}
-$('connect').onclick=async()=>{message('setupmsg','');try{const {url,key}=cfg();await initialize(url,key);sessionStorage.setItem('astock_supabase_public_config',JSON.stringify({url,key}))}catch(e){message('setupmsg',safeErr(e))}};
+$('connect').onclick=async()=>{message('setupmsg','');try{const {url,key}=cfg();await initialize(url,key);localStorage.setItem('astock_supabase_public_config',JSON.stringify({url,key}))}catch(e){message('setupmsg',safeErr(e))}};
 $('signin').onclick=async()=>{message('loginmsg','');try{const {data,error}=await client.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});$('password').value='';if(error)throw error;onLogin(data.user)}catch(e){message('loginmsg',safeErr(e))}};
 $('reload').onclick=loadHoldings;
 $('signout').onclick=async()=>{await client?.auth.signOut();show('private',false);show('login',true);$('holdings').replaceChildren()};
-$('reset').onclick=()=>{sessionStorage.removeItem('astock_supabase_public_config');location.reload()};
-try{const saved=JSON.parse(sessionStorage.getItem('astock_supabase_public_config')||'null');if(saved?.url&&saved?.key){$('url').value=saved.url;$('key').value=saved.key;await initialize(saved.url,saved.key)}}catch(e){message('setupmsg',safeErr(e))}
+$('reset').onclick=()=>{localStorage.removeItem('astock_supabase_public_config');location.reload()};
+try{const saved=JSON.parse(localStorage.getItem('astock_supabase_public_config')||'null');if(saved?.url&&saved?.key){$('url').value=saved.url;$('key').value=saved.key;await initialize(saved.url,saved.key)}}catch(e){message('setupmsg',safeErr(e))}
 fetch('data.json?'+Date.now()).then(r=>r.json()).then(d=>message('stamp','公开页面更新：'+(d.generated_at||'暂无'))).catch(()=>message('stamp','公开数据尚未更新'));
 </script></body></html>
