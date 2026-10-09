@@ -11,6 +11,8 @@ button{border:0;border-radius:10px;background:#244d84;color:white;font-size:15px
 button.secondary{background:#eaf0f8;color:#244d84}.hidden{display:none}.notice{background:#eef4fd;border-radius:10px;padding:12px;font-size:14px}
 .error{color:#a42a2a;white-space:pre-wrap}.ok{color:#14735b}.row{display:flex;gap:10px;flex-wrap:wrap}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #e6ebf1;padding:10px 4px;text-align:left}
+
+.analysis-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}.metric{background:#f1f5fb;border-radius:12px;padding:13px}.metric small{display:block}.metric strong{display:block;margin-top:6px;font-size:19px;overflow-wrap:anywhere}.analysis-table{overflow-x:auto}.analysis-table table{min-width:420px}.bar{height:8px;background:#e6edf7;border-radius:9px;overflow:hidden;margin-top:5px}.bar span{display:block;height:100%;background:#3866a1}.analysis-note{font-size:13px;color:#68768c}
 </style></head><body>
 <header><h1>A股私人持仓控制台</h1><div>独立登录 · 手动记录 · 不连接券商</div></header>
 <main>
@@ -25,7 +27,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <label for="password">登录密码</label><input id="password" type="password" autocomplete="current-password">
 <button id="signin">登录</button><button class="secondary" id="reset">更换数据库配置</button><p id="loginmsg" class="error"></p></section>
 <section class="card hidden" id="private"><h2>我的持仓</h2><p id="who" class="muted"></p><div class="row"><button id="reload">刷新持仓</button><button class="secondary" id="signout">退出登录</button></div>
-<p id="datamsg" class="muted"></p><div id="holdings"></div>
+<p id="datamsg" class="muted"></p><section aria-label="只读持仓分析"><h2>持仓成本与结构分析（只读）</h2><p class="analysis-note">仅使用已登录账户的持仓数量与平均成本；未接入行情，不代表当前市值或盈亏。基金与股票按各自份额/股数及成本计算。</p><div id="analysis"></div></section><h2>持仓明细</h2><div id="holdings"></div>
 <p class="notice">以下仅记录你已在证券 App 完成的真实成交，不会连接券商或发出订单。保存会修改本网页的持仓数量和平均成本。</p>
 <h2>手动登记成交</h2><label for="tradeSymbol">选择现有持仓</label><select id="tradeSymbol"></select>
 <label for="tradeSide">成交方向</label><select id="tradeSide"><option value="buy">买入</option><option value="sell">卖出</option></select>
@@ -53,6 +55,9 @@ function renderDemo(){const fmt=n=>Number(n).toFixed(2);message('demoBalance','�
 $('demoRecord').onclick=()=>{const side=$('demoSide').value,qty=Number($('demoQty').value),price=Number($('demoPrice').value);if(!Number.isSafeInteger(qty)||qty<=0||!Number.isFinite(price)||price<0||$('demoPrice').value.trim()===''){message('demoMsg','请输入有效的正整数数量和非负单价');return}const amount=qty*price;if(!Number.isFinite(amount)){message('demoMsg','金额超出允许范围');return}if(side==='buy'&&amount>demo.cash+1e-8){message('demoMsg','虚拟现金不足，无法买入');return}if(side==='sell'&&qty>demo.quantity){message('demoMsg','虚拟持仓不足，无法卖出');return}if(side==='buy'){const next=demo.quantity+qty;demo.avgCost=(demo.quantity*demo.avgCost+amount)/next;demo.quantity=next;demo.cash-=amount}else{demo.quantity-=qty;demo.cash+=amount;if(demo.quantity===0)demo.avgCost=0}demo.history.unshift({side,qty,price,remaining:demo.quantity});message('demoMsg','模拟成交成功。真实持仓和 Supabase 数据没有修改。');renderDemo()};
 $('demoReset').onclick=()=>{demo=demoInitial();message('demoMsg','虚拟数据已重置');renderDemo()};renderDemo();
 
+
+function renderAnalysis(data){const target=$('analysis');target.replaceChildren();const rows=(data||[]).map(r=>({name:String(r.name||r.symbol||'未知'),symbol:String(r.symbol||''),qty:Number(r.quantity),cost:Number(r.avg_cost)}));const valid=rows.filter(r=>Number.isFinite(r.qty)&&r.qty>=0&&Number.isFinite(r.cost)&&r.cost>=0&&Number.isFinite(r.qty*r.cost));if(!rows.length){target.textContent='暂无可分析持仓';return}if(valid.length!==rows.length){target.textContent='部分持仓数量或成本无效，已暂停分析以免显示错误数据。';return}const invested=valid.reduce((n,r)=>n+r.qty*r.cost,0);const active=valid.filter(r=>r.qty>0);const fmt=n=>'¥'+n.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});const grid=document.createElement('div');grid.className='analysis-grid';[['持仓成本合计',fmt(invested)],['当前持仓标的',active.length+' 只'],['最大成本占比',invested>0?(Math.max(...active.map(r=>r.qty*r.cost))/invested*100).toFixed(1)+'%':'—'],['实时市值 / 浮动盈亏','待接入行情']].forEach(([k,v])=>{const d=document.createElement('div');d.className='metric';const a=document.createElement('small');a.textContent=k;const b=document.createElement('strong');b.textContent=v;d.append(a,b);grid.append(d)});target.append(grid);const wrap=document.createElement('div');wrap.className='analysis-table';const table=document.createElement('table');const head=document.createElement('tr');['标的','持仓成本金额','成本占比'].forEach(t=>{const th=document.createElement('th');th.textContent=t;head.append(th)});table.append(head);active.sort((a,b)=>b.qty*b.cost-a.qty*a.cost).forEach(r=>{const tr=document.createElement('tr');const amount=r.qty*r.cost;const pct=invested>0?amount/invested*100:0;const name=document.createElement('td');name.textContent=r.name+' ('+r.symbol+')';const value=document.createElement('td');value.textContent=fmt(amount);const share=document.createElement('td');share.textContent=pct.toFixed(1)+'%';const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('span');fill.style.width=Math.max(0,Math.min(100,pct))+'%';bar.append(fill);share.append(bar);tr.append(name,value,share);table.append(tr)});wrap.append(table);target.append(wrap);const note=document.createElement('p');note.className='analysis-note';note.textContent='成本占比 = 单只持仓数量 × 平均成本 ÷ 全部持仓成本合计；不含现金、交易费用或已实现盈亏。';target.append(note)}
+
 function show(id,yes){$(id).classList.toggle('hidden',!yes)}
 function message(id,value){$(id).textContent=value||''}
 function safeErr(e){return e?.message||String(e)}
@@ -62,11 +67,12 @@ if(!key||key.length<20||/service_role|sb_secret_/i.test(key))throw Error('只能
 client=createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
 show('setup',false);show('login',true);return client.auth.getUser().then(({data,error})=>{if(!error&&data.user)onLogin(data.user)})}
 function onLogin(user){show('login',false);show('private',true);message('who','已登录：'+(user.email||'私人账户'));loadHoldings()}
-async function loadHoldings(){message('datamsg','正在读取…');$('holdings').replaceChildren();
+async function loadHoldings(){message('datamsg','正在读取…');$('holdings').replaceChildren();$('analysis').replaceChildren();
 try{const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw Error('登录已失效，请重新登录');
 const {data,error}=await client.from('portfolio_positions').select('*').eq('user_id',user.id).limit(100);
 if(error)throw error;
 $('tradeSymbol').replaceChildren();(data||[]).forEach(r=>{const o=document.createElement('option');o.value=r.symbol;o.textContent=r.symbol+' '+(r.name||'');$('tradeSymbol').append(o)});await loadTrades();
+renderAnalysis(data);
 if(!data?.length){message('datamsg','当前没有持仓记录。登录验证成功；下一步添加安全录入功能。');return}
 message('datamsg','已读取 '+data.length+' 条私人持仓。');
 const table=document.createElement('table');const columns=Object.keys(data[0]).filter(k=>!['user_id','id','created_at','updated_at'].includes(k));
