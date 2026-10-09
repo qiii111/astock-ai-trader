@@ -101,7 +101,12 @@ for code, (name, category) in UNIVERSE.items():
         record["technical_label"] = "走势观察分（非买入评级）"
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         errors[code] = type(exc).__name__
-    if category in ("红利股", "周期股"):\n        try:\n            record["fundamentals"] = stock_fundamentals(code)\n        except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:\n            errors[code + "_valuation"] = type(exc).__name__\n    results[code] = record
+    if category in ("红利股", "周期股"):
+        try:
+            record["fundamentals"] = stock_fundamentals(code)
+        except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
+            errors[code + "_valuation"] = type(exc).__name__
+    results[code] = record
 
 out = Path("docs/research_metrics.json")
 out.parent.mkdir(parents=True, exist_ok=True)
