@@ -33,11 +33,26 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <label for="tradePrice">实际成交单价（元）</label><input id="tradePrice" type="number" min="0" step="any" inputmode="decimal" placeholder="例如 4.25">
 <button id="recordTrade">确认并保存成交</button><p id="trademsg" aria-live="polite"></p>
 <h2>最近成交记录</h2><button class="secondary" id="reloadTrades">刷新记录</button><div id="trades"></div></section>
+<section class="card" id="sandbox"><h2>🧪 独立模拟测试区</h2>
+<p class="notice"><b>纯虚拟数据，和你的六条真实持仓完全隔离。</b>不调用 Supabase 写入接口，不连接券商；刷新页面会重置测试数据。</p>
+<p id="demoBalance"></p>
+<label for="demoSide">模拟方向</label><select id="demoSide"><option value="buy">模拟买入</option><option value="sell">模拟卖出</option></select>
+<label for="demoQty">模拟数量（股）</label><input id="demoQty" type="number" min="1" step="1" value="100">
+<label for="demoPrice">模拟单价（元）</label><input id="demoPrice" type="number" min="0" step="any" value="12">
+<div class="row"><button id="demoRecord">执行虚拟成交</button><button class="secondary" id="demoReset">重置模拟数据</button></div>
+<p id="demoMsg" aria-live="polite"></p><h2>模拟成交历史</h2><div id="demoHistory">暂无模拟成交</div></section>
 <section class="card"><h2>行情研究与候选机会</h2><p>后续加入行情、仓位集中度、止损提醒和候选标的研究。所有建议仅供参考，不会自动下单。</p><small id="stamp">公开数据更新日期读取中…</small></section>
 </main>
 <script type="module">
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2';
 const $=id=>document.getElementById(id);let client=null;
+
+const demoInitial=()=>({cash:10000,quantity:100,avgCost:10,history:[]});
+let demo=demoInitial();
+function renderDemo(){const fmt=n=>Number(n).toFixed(2);message('demoBalance','虚拟测试股 000001：'+demo.quantity+' 股，平均成本 ¥'+fmt(demo.avgCost)+'；虚拟现金 ¥'+fmt(demo.cash));const el=$('demoHistory');el.replaceChildren();if(!demo.history.length){el.textContent='暂无模拟成交';return}const table=document.createElement('table');const h=document.createElement('tr');['方向','数量','单价','剩余股数'].forEach(v=>{const th=document.createElement('th');th.textContent=v;h.append(th)});table.append(h);demo.history.forEach(r=>{const tr=document.createElement('tr');[r.side==='buy'?'买入':'卖出',r.qty,r.price,r.remaining].forEach(v=>{const td=document.createElement('td');td.textContent=String(v);tr.append(td)});table.append(tr)});el.append(table)}
+$('demoRecord').onclick=()=>{const side=$('demoSide').value,qty=Number($('demoQty').value),price=Number($('demoPrice').value);if(!Number.isSafeInteger(qty)||qty<=0||!Number.isFinite(price)||price<0||$('demoPrice').value.trim()===''){message('demoMsg','请输入有效的正整数数量和非负单价');return}const amount=qty*price;if(!Number.isFinite(amount)){message('demoMsg','金额超出允许范围');return}if(side==='buy'&&amount>demo.cash+1e-8){message('demoMsg','虚拟现金不足，无法买入');return}if(side==='sell'&&qty>demo.quantity){message('demoMsg','虚拟持仓不足，无法卖出');return}if(side==='buy'){const next=demo.quantity+qty;demo.avgCost=(demo.quantity*demo.avgCost+amount)/next;demo.quantity=next;demo.cash-=amount}else{demo.quantity-=qty;demo.cash+=amount;if(demo.quantity===0)demo.avgCost=0}demo.history.unshift({side,qty,price,remaining:demo.quantity});message('demoMsg','模拟成交成功。真实持仓和 Supabase 数据没有修改。');renderDemo()};
+$('demoReset').onclick=()=>{demo=demoInitial();message('demoMsg','虚拟数据已重置');renderDemo()};renderDemo();
+
 function show(id,yes){$(id).classList.toggle('hidden',!yes)}
 function message(id,value){$(id).textContent=value||''}
 function safeErr(e){return e?.message||String(e)}
