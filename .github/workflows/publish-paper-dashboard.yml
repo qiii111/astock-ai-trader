@@ -26,6 +26,8 @@ jobs:
         run: python tools/export_public_dashboard.py
       - name: Export public quotes (no private portfolio access)
         run: python tools/export_market_quotes.py
+      - name: Export public research metrics (no private account access)
+        run: python tools/export_research_metrics.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
