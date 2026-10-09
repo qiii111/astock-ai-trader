@@ -14,6 +14,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 
 .analysis-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}.metric{background:#f1f5fb;border-radius:12px;padding:13px}.metric small{display:block}.metric strong{display:block;margin-top:6px;font-size:19px;overflow-wrap:anywhere}.analysis-table{overflow-x:auto}.analysis-table table{min-width:420px}.bar{height:8px;background:#e6edf7;border-radius:9px;overflow:hidden;margin-top:5px}.bar span{display:block;height:100%;background:#3866a1}.analysis-note{font-size:13px;color:#68768c}
 #dashboardNav{max-width:740px;margin:12px auto;padding:0 14px}#navItems{display:flex;gap:8px;flex-wrap:wrap}#navItems button{margin:0;background:#eaf0f8;color:#244d84}#navItems button.active{background:#244d84;color:white}#menuToggle{display:none}.nav-section{display:none}.nav-section.active{display:block}details{margin:12px 0}summary{cursor:pointer;color:#244d84}@media(max-width:600px){#menuToggle{display:block;margin:0}#navItems{display:none;flex-direction:column;margin-top:8px}#navItems.open{display:flex}#navItems button{text-align:left}}
+.research-cards{display:grid;gap:12px;margin:14px 0}.research-card{border:1px solid #dce5f0;border-radius:13px;padding:14px;background:#fff}.research-card h3{font-size:16px;margin:0 0 9px;overflow-wrap:anywhere}.research-card .metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.research-card .metrics div{background:#f2f6fb;border-radius:9px;padding:9px;min-width:0}.research-card .metrics small{display:block;font-size:12px}.research-card .metrics strong{display:block;margin-top:3px;overflow-wrap:anywhere}.signal{font-weight:650;margin:10px 0 4px}.signal-muted{color:#64748b}.signal-watch{color:#9a6700}.signal-risk{color:#a42a2a}
 </style></head><body>
 <header><h1>A股持仓与机会研究</h1><div>持仓分析 · ETF / 红利机会 · 不自动下单</div></header><nav id="dashboardNav" aria-label="功能导航"><button id="menuToggle" class="secondary" aria-expanded="false">☰ 导航菜单</button><div id="navItems"><button data-go="portfolio">持仓总览</button><button data-go="research">机会研究</button><button data-go="records">成交记录</button><button data-go="account">账户设置</button></div></nav>
 <main>
@@ -66,9 +67,22 @@ function renderResearch(){
  const codes=['510300','159338','588000','512890','515300','600900','601398'];
  const sorted=codes.map(code=>({code,...(all[code]||{})})).sort((a,b)=>(Number(b.technical_score_100)||-1)-(Number(a.technical_score_100)||-1));
  const note=document.createElement('p');note.className='analysis-note';note.textContent='数据时间：'+(fresh?stamp.toLocaleString('zh-CN'):'数据过期或时间无效')+'；走势分仅基于20日涨跌幅与波动率，不能替代估值、分红或盈利质量评分，也不代表买入建议。';board.append(note);
- const wrap=document.createElement('div');wrap.className='analysis-table';const table=document.createElement('table');const head=document.createElement('tr');
- ['候选标的','20日涨跌','20日年化波动','走势观察分','基本面'].forEach(v=>{const th=document.createElement('th');th.textContent=v;head.append(th)});table.append(head);
- sorted.forEach(r=>{const available=fresh&&Number.isFinite(r.technical_score_100);const tr=document.createElement('tr');[r.name+' ('+r.code+')',available?metricText(r.return_20d_pct):'—',available?metricText(r.volatility_20d_annual_pct):'—',available?r.technical_score_100+'/100':'数据不足',r.fundamentals?(('PE '+(r.fundamentals.pe_ttm??'—')+' / PB '+(r.fundamentals.pb??'—'))+'；财报与股息待核实'):'估值/股息数据待核实'].forEach(v=>{const td=document.createElement('td');td.textContent=String(v);tr.append(td)});table.append(tr)});wrap.append(table);board.append(wrap);
+ const cards=document.createElement('div');cards.className='research-cards';
+ sorted.forEach(r=>{
+  const available=fresh&&Number.isFinite(r.technical_score_100);
+  const card=document.createElement('article');card.className='research-card';
+  const heading=document.createElement('h3');heading.textContent=(r.name||'未知标的')+' ('+r.code+')';card.append(heading);
+  const metrics=document.createElement('div');metrics.className='metrics';
+  [['20日涨跌',available?metricText(r.return_20d_pct):'—'],['年化波动',available?metricText(r.volatility_20d_annual_pct):'—'],['走势观察分',available?r.technical_score_100+'/100':'数据不足'],['估值快照',r.fundamentals?('PE '+(r.fundamentals.pe_ttm??'—')+' / PB '+(r.fundamentals.pb??'—')):'数据不足']].forEach(([key,value])=>{const cell=document.createElement('div');const label=document.createElement('small');label.textContent=key;const strong=document.createElement('strong');strong.textContent=value;cell.append(label,strong);metrics.append(cell)});card.append(metrics);
+  const signal=document.createElement('p');signal.className='signal';const reason=document.createElement('p');reason.className='analysis-note';
+  const fundamentalsComplete=Boolean(r.fundamentals?.financial_report_verified&&Number.isFinite(r.fundamentals?.dividend_yield_pct)&&Number.isFinite(r.fundamentals?.roe_pct));
+  if(!available){signal.textContent='信号：数据不足';signal.classList.add('signal-muted');reason.textContent='历史行情缺失或过期，不能判断买入条件。'}
+  else if(Number(r.return_20d_pct)<=-8||Number(r.volatility_20d_annual_pct)>=40){signal.textContent='信号：暂不考虑';signal.classList.add('signal-risk');reason.textContent='触发研究风控阈值：20日跌幅不小于8%或年化波动不低于40%；并非价格预测。'}
+  else if(fundamentalsComplete){signal.textContent='信号：继续观察';signal.classList.add('signal-watch');reason.textContent='财务数据已具备，但仍须完成估值分位、盈利和分红持续性校验，暂不触发买入候选。'}
+  else{signal.textContent='信号：继续观察';signal.classList.add('signal-watch');reason.textContent='走势可供研究，但缺少经核验的财报、股息率或ROE，买入条件未满足。'}
+  card.append(signal,reason);cards.append(card);
+ });board.append(cards);
+ const rule=document.createElement('p');rule.className='analysis-note';rule.textContent='买入候选信号预留：须同时通过财报质量、估值合理性、分红/盈利持续性、走势和数据时效核验；当前数据源不足，系统不会虚构买入信号。暂不考虑阈值仅用于筛查，不是卖出指令。';board.append(rule);
  if(!latestHoldings.length){hold.textContent='登录后显示持仓的公开走势与基本面数据完整性';return}
  const hw=document.createElement('div');hw.className='analysis-table';const ht=document.createElement('table');const hh=document.createElement('tr');['标的','20日涨跌','60日距高点','基本面结论'].forEach(v=>{const th=document.createElement('th');th.textContent=v;hh.append(th)});ht.append(hh);
  latestHoldings.filter(r=>Number(r.quantity)>0).forEach(r=>{const m=all[r.symbol]||{},ok=fresh&&Number.isFinite(m.technical_score_100),tr=document.createElement('tr');[String(r.name||r.symbol)+' ('+r.symbol+')',ok?metricText(m.return_20d_pct):'数据不足',ok?metricText(m.drawdown_60d_pct):'数据不足',m.fundamentals?('PE '+(m.fundamentals.pe_ttm??'—')+' / PB '+(m.fundamentals.pb??'—')+'；财报/股息待核实'):'财报、股息、估值待核实，暂不评级'].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});ht.append(tr)});hw.append(ht);hold.append(hw)
