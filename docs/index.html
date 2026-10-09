@@ -27,7 +27,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <label for="password">登录密码</label><input id="password" type="password" autocomplete="current-password">
 <button id="signin">登录</button><button class="secondary" id="reset">更换数据库配置</button><p id="loginmsg" class="error"></p></section>
 <section class="card hidden" id="private"><h2>我的持仓</h2><p id="who" class="muted"></p><div class="row"><button id="reload">刷新持仓</button><button class="secondary" id="signout">退出登录</button></div>
-<p id="datamsg" class="muted"></p><section aria-label="只读持仓分析"><h2>持仓成本与结构分析（只读）</h2><p class="analysis-note">仅使用已登录账户的持仓数量与平均成本；未接入行情，不代表当前市值或盈亏。基金与股票按各自份额/股数及成本计算。</p><div id="analysis"></div></section><h2>最新行情与浮动盈亏（只读）</h2><p class="analysis-note">行情为第三方公开数据，不保证实时。点击按钮主动查询；行情不完整时不显示总盈亏。</p><button class="secondary" id="refreshQuotes">获取最新行情</button><div id="quoteResults" aria-live="polite">尚未查询行情</div><h2>持仓明细</h2><div id="holdings"></div>
+<p id="datamsg" class="muted"></p><section aria-label="只读持仓分析"><h2>持仓成本与结构分析（只读）</h2><p class="analysis-note">仅使用已登录账户的持仓数量与平均成本；未接入行情，不代表当前市值或盈亏。基金与股票按各自份额/股数及成本计算。</p><div id="analysis"></div></section><h2>最新行情与浮动盈亏（只读）</h2><p class="analysis-note">行情为 GitHub Pages 上的公开市场快照，不保证实时。点击按钮读取；行情不完整时不显示总盈亏。</p><button class="secondary" id="refreshQuotes">获取最新行情</button><div id="quoteResults" aria-live="polite">尚未查询行情</div><h2>持仓明细</h2><div id="holdings"></div>
 <p class="notice">以下仅记录你已在证券 App 完成的真实成交，不会连接券商或发出订单。保存会修改本网页的持仓数量和平均成本。</p>
 <h2>手动登记成交</h2><label for="tradeSymbol">选择现有持仓</label><select id="tradeSymbol"></select>
 <label for="tradeSide">成交方向</label><select id="tradeSide"><option value="buy">买入</option><option value="sell">卖出</option></select>
@@ -61,27 +61,18 @@ function renderAnalysis(data){const target=$('analysis');target.replaceChildren(
 
 let quoteRequestId=0;
 async function fetchQuotes(rows){
- const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),9000);
- try{
-  const symbols=rows.map(r=>r.symbol);const out={};
-  await Promise.all(symbols.map(async symbol=>{
-   if(!/^\\d{6}$/.test(symbol))return;
-   const secid=(/^[569]/.test(symbol)?'1.':'0.')+symbol;
-   const url='https://push2.eastmoney.com/api/qt/stock/get?secid='+encodeURIComponent(secid)+'&fields=f43,f57,f58,f86,f124&ut=fa5fd1943c7b386f172d6893dbfba10b2';
-   try{
-    const response=await fetch(url,{signal:controller.signal,cache:'no-store',credentials:'omit'});
-    if(!response.ok)throw Error('HTTP '+response.status);
-    const json=await response.json();const d=json?.data;
-    if(!d||String(d.f57)!==symbol)throw Error('行情代码不匹配');
-    const raw=Number(d.f43);const price=raw/1000;
-    if(!Number.isFinite(price)||price<=0)throw Error('无有效行情价格');
-    const epoch=Number(d.f124)||Number(d.f86);
-    const time=Number.isFinite(epoch)&&epoch>1500000000&&epoch<4102444800?new Date(epoch*1000):null;
-    out[symbol]={price,time};
-   }catch(e){out[symbol]={error:e?.name==='AbortError'?'请求超时':'行情接口不可用或浏览器跨域限制'}}
-  }));
-  return out;
- }finally{clearTimeout(timer)}
+ const response=await fetch('market_quotes.json?ts='+Date.now(),{cache:'no-store',credentials:'omit'});
+ if(!response.ok)throw Error('公开行情文件暂不可用');
+ const payload=await response.json();
+ const quotes={};const snapshot=new Date(payload.generated_at);
+ const validSnapshot=Number.isFinite(snapshot.getTime())&&Date.now()-snapshot.getTime()>=-300000&&Date.now()-snapshot.getTime()<=86400000*5;
+ for(const r of rows){
+  const q=payload.quotes?.[r.symbol];
+  const ts=Number(q?.timestamp);const time=ts>1500000000&&ts<4102444800?new Date(ts*1000):null;
+  const price=Number(q?.price);
+  quotes[r.symbol]=validSnapshot&&time&&Number.isFinite(price)&&price>0?{price,time}:{error:'行情缺失或快照过期'};
+ }
+ return quotes;
 }
 function renderQuotes(rows,quotes){
  const el=$('quoteResults');el.replaceChildren();
@@ -104,7 +95,7 @@ function renderQuotes(rows,quotes){
   const profit=market-cost;status.textContent='行情覆盖 '+covered+'/'+valid.length+' 只；持仓市值 '+fmt(market)+'；浮动盈亏 '+fmt(profit)+'；收益率 '+(cost>0?(profit/cost*100).toFixed(2)+'%':'—')+'。按最新可获取行情估算，可能延迟，不含手续费。';
  }else status.textContent='行情覆盖 '+covered+'/'+valid.length+' 只；部分行情不可用或超过5天，已停止展示总市值和总盈亏，避免误导。';
  el.append(status);const wrap=document.createElement('div');wrap.className='analysis-table';wrap.append(table);el.append(wrap);
- const note=document.createElement('p');note.className='analysis-note';note.textContent='行情来自第三方公开接口，可能延迟或因浏览器跨域限制失败；查询会向行情提供方发送股票代码。无交易权限、不写入数据库。';el.append(note);
+ const note=document.createElement('p');note.className='analysis-note';note.textContent='行情由 GitHub Actions 定时抓取第三方公开市场数据并发布，不包含私人持仓。数据可能延迟或缺失；查询不向行情提供方发送你的持仓，不写入数据库。';el.append(note);
 }
 let latestHoldings=[];
 async function refreshQuotes(){
