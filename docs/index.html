@@ -66,7 +66,7 @@ function renderResearch(){
  const codes=['510300','159338','588000','512890','515300','600900','601398'];
  const sorted=codes.map(code=>({code,...(all[code]||{})})).sort((a,b)=>(Number(b.technical_score_100)||-1)-(Number(a.technical_score_100)||-1));
  const note=document.createElement('p');note.className='analysis-note';note.textContent='数据时间：'+(fresh?stamp.toLocaleString('zh-CN'):'数据过期或时间无效')+'；走势分仅基于20日涨跌幅与波动率，不能替代估值、分红或盈利质量评分，也不代表买入建议。';board.append(note);
- const wrap=document.createElement('div');wrap.className='analysis-table',table=document.createElement('table'),head=document.createElement('tr');
+ const wrap=document.createElement('div');wrap.className='analysis-table';const table=document.createElement('table');const head=document.createElement('tr');
  ['候选标的','20日涨跌','20日年化波动','走势观察分','基本面'].forEach(v=>{const th=document.createElement('th');th.textContent=v;head.append(th)});table.append(head);
  sorted.forEach(r=>{const available=fresh&&Number.isFinite(r.technical_score_100);const tr=document.createElement('tr');[r.name+' ('+r.code+')',available?metricText(r.return_20d_pct):'—',available?metricText(r.volatility_20d_annual_pct):'—',available?r.technical_score_100+'/100':'数据不足','待核实（无财报/分红数据）'].forEach(v=>{const td=document.createElement('td');td.textContent=String(v);tr.append(td)});table.append(tr)});wrap.append(table);board.append(wrap);
  if(!latestHoldings.length){hold.textContent='登录后显示持仓的公开走势与基本面数据完整性';return}
