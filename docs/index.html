@@ -28,7 +28,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <label for="password">登录密码</label><input id="password" type="password" autocomplete="current-password">
 <button id="signin">登录</button><button class="secondary" id="reset">更换数据库配置</button><p id="loginmsg" class="error"></p></section>
 </div><section class="card hidden" id="private"><h2>我的持仓</h2><p id="who" class="muted"></p><div class="row"><button id="reload">刷新持仓</button><button class="secondary" id="signout">退出登录</button></div>
-<p id="datamsg" class="muted"></p><div class="nav-section" data-tab="portfolio"><section aria-label="只读持仓分析"><h2>持仓成本与结构分析（只读）</h2><p class="analysis-note">仅使用已登录账户的持仓数量与平均成本；未接入行情，不代表当前市值或盈亏。基金与股票按各自份额/股数及成本计算。</p><div id="analysis"></div></section><h2>最新行情与浮动盈亏（只读）</h2><p class="analysis-note">行情为 GitHub Pages 上的公开市场快照，不保证实时。点击按钮读取；行情不完整时不显示总盈亏。</p><button class="secondary" id="refreshQuotes">获取最新行情</button><div id="quoteResults" aria-live="polite">尚未查询行情</div><h2>持仓诊断与风险评估（只读）</h2><p class="analysis-note">根据已登录持仓和公开行情，在本机浏览器计算。集中度是风险提示，不等于卖出建议；没有分红、估值和财报数据时不作基本面评级。</p><div id="portfolioDiagnosis">请先获取最新行情</div><details><summary>展开原始持仓明细</summary><div id="holdings"></div></details></div><div class="nav-section" data-tab="records">
+<p id="datamsg" class="muted"></p><div class="nav-section" data-tab="portfolio"><section aria-label="只读持仓分析"><h2>持仓成本与结构分析（只读）</h2><p class="analysis-note">仅使用已登录账户的持仓数量与平均成本；未接入行情，不代表当前市值或盈亏。基金与股票按各自份额/股数及成本计算。</p><div id="analysis"></div></section><h2>最新行情与浮动盈亏（只读）</h2><p class="analysis-note">行情为 GitHub Pages 上的公开市场快照，不保证实时。点击按钮读取；行情不完整时不显示总盈亏。</p><button class="secondary" id="refreshQuotes">获取最新行情</button><div id="quoteResults" aria-live="polite">尚未查询行情</div><h2>持仓诊断与风险评估（只读）</h2><p class="analysis-note">根据已登录持仓和公开行情，在本机浏览器计算。集中度是风险提示，不等于卖出建议；没有分红、估值和财报数据时不作基本面评级。</p><div id="portfolioDiagnosis">请先获取最新行情</div><h2>持仓走势与基本面核查</h2><div id="holdingResearch">公开研究数据加载中…</div><details><summary>展开原始持仓明细</summary><div id="holdings"></div></details></div><div class="nav-section" data-tab="records">
 <p class="notice">以下仅记录你已在证券 App 完成的真实成交，不会连接券商或发出订单。保存会修改本网页的持仓数量和平均成本。</p>
 <h2>手动登记成交</h2><label for="tradeSymbol">选择现有持仓</label><select id="tradeSymbol"></select>
 <label for="tradeSide">成交方向</label><select id="tradeSide"><option value="buy">买入</option><option value="sell">卖出</option></select>
@@ -48,13 +48,37 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 </tbody></table></div>
 <p class="analysis-note">评分规则（数据齐备后启用）：估值25分、盈利或分红质量25分、趋势20分、资金与流动性15分、组合分散及风险15分。缺少关键数据时显示“数据不足”，不输出虚假的买入信号。</p>
 <p class="analysis-note">独立公开研究区，不读取、上传或发布私人持仓；不连接券商、不自动下单、不写入数据库。</p>
-<small id="stamp">公开数据更新日期读取中…</small></section>
+<h2>数据驱动机会观察榜</h2><button class="secondary" id="reloadResearch">更新公开研究数据</button><div id="researchBoard">正在加载历史行情…</div><small id="stamp">公开数据更新日期读取中…</small></section>
 </main>
 <script type="module">
 import {createClient} from 'https://esm.sh/@supabase/supabase-js@2';
 const $=id=>document.getElementById(id);let client=null;
 
 let activeTab='portfolio';function selectTab(tab){if(!['portfolio','research','records','account'].includes(tab))return;activeTab=tab;document.querySelectorAll('.nav-section').forEach(el=>el.classList.toggle('active',el.dataset.tab===tab));document.querySelectorAll('[data-go]').forEach(el=>el.classList.toggle('active',el.dataset.go===tab));$('navItems').classList.remove('open');$('menuToggle').setAttribute('aria-expanded','false');window.scrollTo(0,0)}document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>selectTab(el.dataset.go));$('menuToggle').onclick=()=>{const open=$('navItems').classList.toggle('open');$('menuToggle').setAttribute('aria-expanded',String(open))};selectTab('portfolio');
+const publicUniverse=['510300','159338','588000','512890','515300','600900','601398','003816','000582','513180','159549','159692','520920'];
+let researchData=null;
+function metricText(v){return Number.isFinite(Number(v))?Number(v).toFixed(2)+'%':'—'}
+function renderResearch(){
+ const board=$('researchBoard'),hold=$('holdingResearch');board.replaceChildren();hold.replaceChildren();
+ if(!researchData){board.textContent='研究数据暂不可用，请稍后重试';hold.textContent='研究数据暂不可用';return}
+ const all=researchData.securities||{},now=Date.now(),stamp=new Date(researchData.generated_at);
+ const fresh=Number.isFinite(stamp.getTime())&&now-stamp.getTime()>=-300000&&now-stamp.getTime()<86400000*5;
+ const codes=['510300','159338','588000','512890','515300','600900','601398'];
+ const sorted=codes.map(code=>({code,...(all[code]||{})})).sort((a,b)=>(Number(b.technical_score_100)||-1)-(Number(a.technical_score_100)||-1));
+ const note=document.createElement('p');note.className='analysis-note';note.textContent='数据时间：'+(fresh?stamp.toLocaleString('zh-CN'):'数据过期或时间无效')+'；走势分仅基于20日涨跌幅与波动率，不能替代估值、分红或盈利质量评分，也不代表买入建议。';board.append(note);
+ const wrap=document.createElement('div');wrap.className='analysis-table',table=document.createElement('table'),head=document.createElement('tr');
+ ['候选标的','20日涨跌','20日年化波动','走势观察分','基本面'].forEach(v=>{const th=document.createElement('th');th.textContent=v;head.append(th)});table.append(head);
+ sorted.forEach(r=>{const available=fresh&&Number.isFinite(r.technical_score_100);const tr=document.createElement('tr');[r.name+' ('+r.code+')',available?metricText(r.return_20d_pct):'—',available?metricText(r.volatility_20d_annual_pct):'—',available?r.technical_score_100+'/100':'数据不足','待核实（无财报/分红数据）'].forEach(v=>{const td=document.createElement('td');td.textContent=String(v);tr.append(td)});table.append(tr)});wrap.append(table);board.append(wrap);
+ if(!latestHoldings.length){hold.textContent='登录后显示持仓的公开走势与基本面数据完整性';return}
+ const hw=document.createElement('div');hw.className='analysis-table';const ht=document.createElement('table');const hh=document.createElement('tr');['标的','20日涨跌','60日距高点','基本面结论'].forEach(v=>{const th=document.createElement('th');th.textContent=v;hh.append(th)});ht.append(hh);
+ latestHoldings.filter(r=>Number(r.quantity)>0).forEach(r=>{const m=all[r.symbol]||{},ok=fresh&&Number.isFinite(m.technical_score_100),tr=document.createElement('tr');[String(r.name||r.symbol)+' ('+r.symbol+')',ok?metricText(m.return_20d_pct):'数据不足',ok?metricText(m.drawdown_60d_pct):'数据不足','财报、股息、估值尚未接入，暂不评级'].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});ht.append(tr)});hw.append(ht);hold.append(hw)
+}
+async function loadResearch(){
+ $('researchBoard').textContent='正在读取公开历史数据…';
+ try{const response=await fetch('research_metrics.json?t='+Date.now(),{cache:'no-store',credentials:'omit'});if(!response.ok)throw Error('not available');researchData=await response.json()}catch(e){researchData=null}
+ renderResearch()
+}
+$('reloadResearch').onclick=loadResearch;loadResearch();
 function renderAnalysis(data){const target=$('analysis');target.replaceChildren();const rows=(data||[]).map(r=>({name:String(r.name||r.symbol||'未知'),symbol:String(r.symbol||''),qty:Number(r.quantity),cost:Number(r.avg_cost)}));const valid=rows.filter(r=>Number.isFinite(r.qty)&&r.qty>=0&&Number.isFinite(r.cost)&&r.cost>=0&&Number.isFinite(r.qty*r.cost));if(!rows.length){target.textContent='暂无可分析持仓';return}if(valid.length!==rows.length){target.textContent='部分持仓数量或成本无效，已暂停分析以免显示错误数据。';return}const invested=valid.reduce((n,r)=>n+r.qty*r.cost,0);const active=valid.filter(r=>r.qty>0);const fmt=n=>'¥'+n.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});const grid=document.createElement('div');grid.className='analysis-grid';[['持仓成本合计',fmt(invested)],['当前持仓标的',active.length+' 只'],['最大成本占比',invested>0?(Math.max(...active.map(r=>r.qty*r.cost))/invested*100).toFixed(1)+'%':'—'],['实时市值 / 浮动盈亏','待接入行情']].forEach(([k,v])=>{const d=document.createElement('div');d.className='metric';const a=document.createElement('small');a.textContent=k;const b=document.createElement('strong');b.textContent=v;d.append(a,b);grid.append(d)});target.append(grid);const wrap=document.createElement('div');wrap.className='analysis-table';const table=document.createElement('table');const head=document.createElement('tr');['标的','持仓成本金额','成本占比'].forEach(t=>{const th=document.createElement('th');th.textContent=t;head.append(th)});table.append(head);active.sort((a,b)=>b.qty*b.cost-a.qty*a.cost).forEach(r=>{const tr=document.createElement('tr');const amount=r.qty*r.cost;const pct=invested>0?amount/invested*100:0;const name=document.createElement('td');name.textContent=r.name+' ('+r.symbol+')';const value=document.createElement('td');value.textContent=fmt(amount);const share=document.createElement('td');share.textContent=pct.toFixed(1)+'%';const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('span');fill.style.width=Math.max(0,Math.min(100,pct))+'%';bar.append(fill);share.append(bar);tr.append(name,value,share);table.append(tr)});wrap.append(table);target.append(wrap);const note=document.createElement('p');note.className='analysis-note';note.textContent='成本占比 = 单只持仓数量 × 平均成本 ÷ 全部持仓成本合计；不含现金、交易费用或已实现盈亏。';target.append(note)}
 
 
@@ -135,7 +159,7 @@ try{const {data:{user},error:authError}=await client.auth.getUser();if(authError
 const {data,error}=await client.from('portfolio_positions').select('*').eq('user_id',user.id).limit(100);
 if(error)throw error;
 $('tradeSymbol').replaceChildren();(data||[]).forEach(r=>{const o=document.createElement('option');o.value=r.symbol;o.textContent=r.symbol+' '+(r.name||'');$('tradeSymbol').append(o)});await loadTrades();
-renderAnalysis(data);latestHoldings=data||[];$('quoteResults').textContent='尚未查询行情，请点击获取最新行情';$('portfolioDiagnosis').textContent='请先获取最新行情';
+renderAnalysis(data);latestHoldings=data||[];renderResearch();$('quoteResults').textContent='尚未查询行情，请点击获取最新行情';$('portfolioDiagnosis').textContent='请先获取最新行情';
 if(!data?.length){message('datamsg','当前没有持仓记录。登录验证成功；下一步添加安全录入功能。');return}
 message('datamsg','已读取 '+data.length+' 条私人持仓。');
 const table=document.createElement('table');const columns=Object.keys(data[0]).filter(k=>!['user_id','id','created_at','updated_at'].includes(k));
