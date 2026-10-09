@@ -6,7 +6,7 @@
 body{margin:0}header{background:#1c365b;color:white;padding:24px 18px}header h1{font-size:23px;margin:0 0 7px}
 main{max-width:740px;margin:18px auto;padding:0 14px}.card{background:white;border-radius:16px;padding:20px;margin-bottom:15px;box-shadow:0 2px 14px #15233a0a}
 h2{font-size:18px;margin:0 0 12px}p{line-height:1.65}small,.muted{color:#68768c}label{display:block;font-size:14px;margin:12px 0 6px}
-input{width:100%;border:1px solid #cbd4e2;border-radius:10px;padding:13px;font-size:16px;background:white}
+input,select{width:100%;border:1px solid #cbd4e2;border-radius:10px;padding:13px;font-size:16px;background:white}
 button{border:0;border-radius:10px;background:#244d84;color:white;font-size:15px;padding:12px 16px;margin-top:14px;cursor:pointer}
 button.secondary{background:#eaf0f8;color:#244d84}.hidden{display:none}.notice{background:#eef4fd;border-radius:10px;padding:12px;font-size:14px}
 .error{color:#a42a2a;white-space:pre-wrap}.ok{color:#14735b}.row{display:flex;gap:10px;flex-wrap:wrap}
@@ -26,7 +26,13 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <button id="signin">登录</button><button class="secondary" id="reset">更换数据库配置</button><p id="loginmsg" class="error"></p></section>
 <section class="card hidden" id="private"><h2>我的持仓</h2><p id="who" class="muted"></p><div class="row"><button id="reload">刷新持仓</button><button class="secondary" id="signout">退出登录</button></div>
 <p id="datamsg" class="muted"></p><div id="holdings"></div>
-<p class="notice">目前先验证安全登录和只读持仓。确认数据库字段后再开放买入、卖出记录，避免错误写入真实持仓。</p></section>
+<p class="notice">以下仅记录你已在证券 App 完成的真实成交，不会连接券商或发出订单。保存会修改本网页的持仓数量和平均成本。</p>
+<h2>手动登记成交</h2><label for="tradeSymbol">选择现有持仓</label><select id="tradeSymbol"></select>
+<label for="tradeSide">成交方向</label><select id="tradeSide"><option value="buy">买入</option><option value="sell">卖出</option></select>
+<label for="tradeQty">成交数量（股/份）</label><input id="tradeQty" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 100">
+<label for="tradePrice">实际成交单价（元）</label><input id="tradePrice" type="number" min="0" step="any" inputmode="decimal" placeholder="例如 4.25">
+<button id="recordTrade">确认并保存成交</button><p id="trademsg" aria-live="polite"></p>
+<h2>最近成交记录</h2><button class="secondary" id="reloadTrades">刷新记录</button><div id="trades"></div></section>
 <section class="card"><h2>行情研究与候选机会</h2><p>后续加入行情、仓位集中度、止损提醒和候选标的研究。所有建议仅供参考，不会自动下单。</p><small id="stamp">公开数据更新日期读取中…</small></section>
 </main>
 <script type="module">
@@ -45,6 +51,7 @@ async function loadHoldings(){message('datamsg','正在读取…');$('holdings')
 try{const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw Error('登录已失效，请重新登录');
 const {data,error}=await client.from('portfolio_positions').select('*').eq('user_id',user.id).limit(100);
 if(error)throw error;
+$('tradeSymbol').replaceChildren();(data||[]).forEach(r=>{const o=document.createElement('option');o.value=r.symbol;o.textContent=r.symbol+' '+(r.name||'');$('tradeSymbol').append(o)});await loadTrades();
 if(!data?.length){message('datamsg','当前没有持仓记录。登录验证成功；下一步添加安全录入功能。');return}
 message('datamsg','已读取 '+data.length+' 条私人持仓。');
 const table=document.createElement('table');const columns=Object.keys(data[0]).filter(k=>!['user_id','id','created_at','updated_at'].includes(k));
@@ -53,6 +60,9 @@ data.forEach(r=>{const row=document.createElement('tr');columns.forEach(c=>{cons
 }catch(e){message('datamsg','读取失败：'+safeErr(e)+'。请不要关闭 RLS；我们需要检查表结构和权限。')}}
 $('connect').onclick=async()=>{message('setupmsg','');try{const {url,key}=cfg();await initialize(url,key);localStorage.setItem('astock_supabase_public_config',JSON.stringify({url,key}))}catch(e){message('setupmsg',safeErr(e))}};
 $('signin').onclick=async()=>{message('loginmsg','');try{const {data,error}=await client.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});$('password').value='';if(error)throw error;onLogin(data.user)}catch(e){message('loginmsg',safeErr(e))}};
+async function loadTrades(){const target=$('trades');target.replaceChildren();try{const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw Error('请先登录');const {data,error}=await client.from('portfolio_trades').select('symbol,side,quantity,price,traded_at').eq('user_id',user.id).order('traded_at',{ascending:false}).limit(30);if(error)throw error;if(!data?.length){target.textContent='暂无成交记录';return}const table=document.createElement('table');const heads=['时间','代码','方向','数量','价格'];const tr=document.createElement('tr');heads.forEach(h=>{const th=document.createElement('th');th.textContent=h;tr.append(th)});table.append(tr);data.forEach(r=>{const row=document.createElement('tr');[new Date(r.traded_at).toLocaleString('zh-CN'),r.symbol,r.side==='buy'?'买入':'卖出',r.quantity,r.price].forEach(v=>{const td=document.createElement('td');td.textContent=String(v);row.append(td)});table.append(row)});target.append(table)}catch(e){target.textContent='成交记录读取失败：'+safeErr(e)}}
+$('recordTrade').onclick=async()=>{const button=$('recordTrade');message('trademsg','');const symbol=$('tradeSymbol').value,side=$('tradeSide').value,qty=Number($('tradeQty').value),price=Number($('tradePrice').value);if(!/^\\d{6}$/.test(symbol)||!Number.isSafeInteger(qty)||qty<=0||!Number.isFinite(price)||price<0||$('tradePrice').value.trim()===''){message('trademsg','请填写有效的股票、正整数数量和非负成交价');return}const action=side==='buy'?'买入':'卖出';if(!confirm('仅登记已实际成交的交易，不会向券商下单。\\n'+action+' '+symbol+'，数量 '+qty+'，单价 '+price+' 元。\\n保存后会更新网页持仓。确认吗？'))return;button.disabled=true;try{const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw Error('请重新登录');const {error}=await client.rpc('record_portfolio_trade',{p_symbol:symbol,p_side:side,p_quantity:qty,p_price:price});if(error)throw error;message('trademsg','登记成功，持仓与成交记录已更新。');$('tradeQty').value='';$('tradePrice').value='';await loadHoldings()}catch(e){message('trademsg','登记失败：'+safeErr(e))}finally{button.disabled=false}};
+$('reloadTrades').onclick=loadTrades;
 $('reload').onclick=loadHoldings;
 $('signout').onclick=async()=>{await client?.auth.signOut();show('private',false);show('login',true);$('holdings').replaceChildren()};
 $('reset').onclick=()=>{localStorage.removeItem('astock_supabase_public_config');location.reload()};
