@@ -3,6 +3,7 @@
 import datetime as dt
 import json
 import math
+import re
 import urllib.request
 from pathlib import Path
 
@@ -24,6 +25,29 @@ UNIVERSE = {
 }
 def market(code):
     return "sh" if code.startswith(("5", "6", "9")) else "sz"
+
+def stock_fundamentals(code):
+    """Public quote-level valuation only; NOT audited financial statement data."""
+    symbol = market(code) + code
+    url = "https://qt.gtimg.cn/q=" + symbol
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=12) as res:
+        payload = res.read().decode("gbk", errors="replace")
+    match = re.search(r'="([^"]+)"', payload)
+    if not match:
+        raise ValueError("quote missing")
+    fields = match.group(1).split("~")
+    if len(fields) < 47 or fields[2] != code:
+        raise ValueError("unexpected fields")
+    # Tencent quote fields: 39 = P/E TTM, 46 = P/B.
+    def positive(index):
+        value = float(fields[index])
+        return round(value, 3) if math.isfinite(value) and value > 0 else None
+    pe, pb = positive(39), positive(46)
+    if pe is None and pb is None:
+        raise ValueError("valuation missing")
+    return {"pe_ttm": pe, "pb": pb, "source": "Tencent public quote fields",
+            "financial_report_verified": False}
 
 def history(code):
     # Tencent daily-adjusted? qfq history is adjusted; used for percentage changes only.
@@ -77,14 +101,14 @@ for code, (name, category) in UNIVERSE.items():
         record["technical_label"] = "走势观察分（非买入评级）"
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         errors[code] = type(exc).__name__
-    results[code] = record
+    if category in ("红利股", "周期股"):\n        try:\n            record["fundamentals"] = stock_fundamentals(code)\n        except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:\n            errors[code + "_valuation"] = type(exc).__name__\n    results[code] = record
 
 out = Path("docs/research_metrics.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps({
     "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     "source": "Tencent public historical daily K-line",
-    "methodology": "20-session adjusted close return; 20-session annualized daily volatility; 60-session drawdown from max close; technical screen only",
+    "methodology": "Technical screen only; stock P/E and P/B are unverified quote fields, not financial-report analysis",
     "securities": results, "errors": errors,
 }, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 print("Research metrics available:", len(results)-len(errors), "/", len(results), "errors:", errors)
