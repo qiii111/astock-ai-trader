@@ -1,25 +1,61 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>A股行情研究台</title>
+<title>A股私人持仓控制台</title>
 <style>
-body{font:16px system-ui,-apple-system,sans-serif;background:#f4f6fa;color:#24324a;margin:0}
-header{background:#1d365d;color:white;padding:25px 20px}
-main{max-width:740px;margin:auto;padding:20px}
-section{background:white;border-radius:16px;padding:22px;margin-bottom:16px;box-shadow:0 2px 12px #15233a0a}
-h1{font-size:23px;margin:0 0 10px}h2{font-size:19px}
-p{line-height:1.7}small{color:#607089}
-.tag{display:inline-block;background:#e9f1ff;color:#22569a;border-radius:7px;padding:6px 10px}
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#22324c;background:#f3f6fb}*{box-sizing:border-box}
+body{margin:0}header{background:#1c365b;color:white;padding:24px 18px}header h1{font-size:23px;margin:0 0 7px}
+main{max-width:740px;margin:18px auto;padding:0 14px}.card{background:white;border-radius:16px;padding:20px;margin-bottom:15px;box-shadow:0 2px 14px #15233a0a}
+h2{font-size:18px;margin:0 0 12px}p{line-height:1.65}small,.muted{color:#68768c}label{display:block;font-size:14px;margin:12px 0 6px}
+input{width:100%;border:1px solid #cbd4e2;border-radius:10px;padding:13px;font-size:16px;background:white}
+button{border:0;border-radius:10px;background:#244d84;color:white;font-size:15px;padding:12px 16px;margin-top:14px;cursor:pointer}
+button.secondary{background:#eaf0f8;color:#244d84}.hidden{display:none}.notice{background:#eef4fd;border-radius:10px;padding:12px;font-size:14px}
+.error{color:#a42a2a;white-space:pre-wrap}.ok{color:#14735b}.row{display:flex;gap:10px;flex-wrap:wrap}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #e6ebf1;padding:10px 4px;text-align:left}
 </style></head><body>
-<header><h1>A股行情与机会研究台</h1>公开页面 · 只展示非敏感信息</header>
+<header><h1>A股私人持仓控制台</h1><div>独立登录 · 手动记录 · 不连接券商</div></header>
 <main>
-<section><span class="tag">隐私保护已开启</span>
-<h2>真实持仓不在公开网页展示</h2>
-<p>持仓数量、买入成本、账户资金、盈亏及成交记录均不从数据库导出到 GitHub Pages。</p>
-<p>后续可在这里添加公开行情、市场观察和候选标的分析。建议由你在证券账户中自主决定并执行交易。</p></section>
-<section><h2>交易记录与私人持仓</h2><p>私人账本功能正在改造中，尚未提供安全的在线录入入口。请勿在本公开网页输入账户或交易信息。</p>
-<small id="stamp">正在读取公开数据更新日期…</small></section>
-</main><script>
-fetch('data.json?'+Date.now()).then(r=>r.json()).then(d=>{
-document.getElementById('stamp').textContent='公开页面更新：'+(d.generated_at||'暂无');
-}).catch(()=>{document.getElementById('stamp').textContent='公开页面数据尚未更新';});
+<section class="card"><h2>隐私保护</h2><p>此网页的代码公开，但你的持仓、成本、成交记录不应公开。数据仅在登录后从 Supabase 按用户权限读取。实际买卖由你自行在证券 App 执行。</p><p class="notice">首次使用需要配置 Supabase 的 Project URL 和 <b>publishable / anon 公钥</b>。不要填写数据库密码、service_role 或 secret key。</p></section>
+<section class="card" id="setup"><h2>连接私人数据库</h2>
+<label for="url">Supabase Project URL</label><input id="url" type="url" placeholder="https://你的项目.supabase.co" autocomplete="off">
+<label for="key">Publishable key（或旧版 anon public key）</label><input id="key" type="text" placeholder="sb_publishable_... 或 eyJ..." autocomplete="off">
+<button id="connect">连接并登录</button><p id="setupmsg" class="error"></p>
+<small>连接参数仅保存在当前浏览器的 sessionStorage；它们是公开客户端配置，不是数据库管理密钥。</small></section>
+<section class="card hidden" id="login"><h2>私人登录</h2>
+<label for="email">邮箱</label><input id="email" type="email" autocomplete="username">
+<label for="password">登录密码</label><input id="password" type="password" autocomplete="current-password">
+<button id="signin">登录</button><button class="secondary" id="reset">更换数据库配置</button><p id="loginmsg" class="error"></p></section>
+<section class="card hidden" id="private"><h2>我的持仓</h2><p id="who" class="muted"></p><div class="row"><button id="reload">刷新持仓</button><button class="secondary" id="signout">退出登录</button></div>
+<p id="datamsg" class="muted"></p><div id="holdings"></div>
+<p class="notice">目前先验证安全登录和只读持仓。确认数据库字段后再开放买入、卖出记录，避免错误写入真实持仓。</p></section>
+<section class="card"><h2>行情研究与候选机会</h2><p>后续加入行情、仓位集中度、止损提醒和候选标的研究。所有建议仅供参考，不会自动下单。</p><small id="stamp">公开数据更新日期读取中…</small></section>
+</main>
+<script type="module">
+import {createClient} from 'https://esm.sh/@supabase/supabase-js@2';
+const $=id=>document.getElementById(id);let client=null;
+function show(id,yes){$(id).classList.toggle('hidden',!yes)}
+function message(id,value){$(id).textContent=value||''}
+function safeErr(e){return e?.message||String(e)}
+function cfg(){return {url:$('url').value.trim(),key:$('key').value.trim()}}
+function initialize(url,key){if(!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(url))throw Error('请填写正确的 Supabase Project URL');
+if(!key||key.length<20||/service_role|sb_secret_/i.test(key))throw Error('只能使用 publishable / anon 公钥，禁止使用 secret 或 service_role');
+client=createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
+show('setup',false);show('login',true);return client.auth.getUser().then(({data,error})=>{if(!error&&data.user)onLogin(data.user)})}
+function onLogin(user){show('login',false);show('private',true);message('who','已登录：'+(user.email||'私人账户'));loadHoldings()}
+async function loadHoldings(){message('datamsg','正在读取…');$('holdings').replaceChildren();
+try{const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw Error('登录已失效，请重新登录');
+const {data,error}=await client.from('portfolio_positions').select('*').eq('user_id',user.id).limit(100);
+if(error)throw error;
+if(!data?.length){message('datamsg','当前没有持仓记录。登录验证成功；下一步添加安全录入功能。');return}
+message('datamsg','已读取 '+data.length+' 条私人持仓。');
+const table=document.createElement('table');const columns=Object.keys(data[0]).filter(k=>!['user_id','id','created_at','updated_at'].includes(k));
+const tr=document.createElement('tr');columns.forEach(c=>{const th=document.createElement('th');th.textContent=c;tr.append(th)});table.append(tr);
+data.forEach(r=>{const row=document.createElement('tr');columns.forEach(c=>{const td=document.createElement('td');td.textContent=r[c]===null?'—':String(r[c]);row.append(td)});table.append(row)});$('holdings').append(table)
+}catch(e){message('datamsg','读取失败：'+safeErr(e)+'。请不要关闭 RLS；我们需要检查表结构和权限。')}}
+$('connect').onclick=async()=>{message('setupmsg','');try{const {url,key}=cfg();await initialize(url,key);sessionStorage.setItem('astock_supabase_public_config',JSON.stringify({url,key}))}catch(e){message('setupmsg',safeErr(e))}};
+$('signin').onclick=async()=>{message('loginmsg','');try{const {data,error}=await client.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});$('password').value='';if(error)throw error;onLogin(data.user)}catch(e){message('loginmsg',safeErr(e))}};
+$('reload').onclick=loadHoldings;
+$('signout').onclick=async()=>{await client?.auth.signOut();show('private',false);show('login',true);$('holdings').replaceChildren()};
+$('reset').onclick=()=>{sessionStorage.removeItem('astock_supabase_public_config');location.reload()};
+try{const saved=JSON.parse(sessionStorage.getItem('astock_supabase_public_config')||'null');if(saved?.url&&saved?.key){$('url').value=saved.url;$('key').value=saved.key;await initialize(saved.url,saved.key)}}catch(e){message('setupmsg',safeErr(e))}
+fetch('data.json?'+Date.now()).then(r=>r.json()).then(d=>message('stamp','公开页面更新：'+(d.generated_at||'暂无'))).catch(()=>message('stamp','公开数据尚未更新'));
 </script></body></html>
