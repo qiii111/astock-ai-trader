@@ -1,87 +1,74 @@
 #!/usr/bin/env python3
-"""Export public market-wide A-share/ETF quotes; NEVER read private holdings."""
+"""Publish quotes for a fixed PUBLIC sample universe; never access private holdings."""
 import datetime as dt
 import json
+import re
 import time
 import urllib.parse
-import urllib.error
 import urllib.request
 from pathlib import Path
 
-BASE = "https://push2.eastmoney.com/api/qt/clist/get"
-FIELDS = "f12,f13,f2,f124"
-# Broad PUBLIC universes only. No private holdings, credentials or user watchlists.
-UNIVERSES = (
-    "m:0+t:6,m:0+t:13,m:0+t:80,m:1+t:2,m:1+t:23",
-    "m:0+t:8,m:1+t:8",
-    "m:0+t:4,m:1+t:4,m:0+t:5,m:1+t:5",
-)
-PAGE_SIZE = 100
-MAX_PAGES = 100
-RETRIES = 3
+# Public security identifiers only. No Supabase credentials or private portfolio reads.
+SYMBOLS = ("003816", "000582", "513180", "159549", "159692", "520920")
+HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"}
 quotes = {}
 errors = []
 
-def fetch_page(universe, page):
-    params = {"pn": page, "pz": PAGE_SIZE, "po": 1, "np": 1,
-              "fltt": 2, "invt": 2, "fid": "f12", "fs": universe, "fields": FIELDS}
-    url = BASE + "?" + urllib.parse.urlencode(params)
-    last_error = None
-    for attempt in range(RETRIES):
-        try:
-            request = urllib.request.Request(
-                url, headers={"User-Agent": "Mozilla/5.0",
-                              "Referer": "https://quote.eastmoney.com/",
-                              "Accept": "application/json"})
-            with urllib.request.urlopen(request, timeout=15) as response:
-                payload = json.load(response)
-            data = payload.get("data") or {}
-            rows = data.get("diff") or []
-            return list(rows.values()) if isinstance(rows, dict) else rows
-        except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
-            last_error = type(exc).__name__
-            if isinstance(exc, urllib.error.HTTPError):
-                last_error += " HTTP " + str(exc.code)
-            if attempt + 1 < RETRIES:
-                time.sleep(attempt + 1)
-    raise RuntimeError(last_error or "UnknownFetchError")
+def market(code):
+    return "sh" if code.startswith(("5", "6", "9")) else "sz"
 
-for universe_index, universe in enumerate(UNIVERSES, 1):
-    for page in range(1, MAX_PAGES + 1):
+def get_text(url):
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return response.read().decode("gbk", errors="replace")
+
+def eastmoney(code):
+    secid = ("1." if market(code) == "sh" else "0.") + code
+    url = "https://push2.eastmoney.com/api/qt/stock/get?" + urllib.parse.urlencode(
+        {"secid": secid, "fields": "f43,f57,f58,f124"})
+    data = json.loads(get_text(url)).get("data") or {}
+    price = float(data["f43"]) / 1000  # raw f43 uses three decimal places
+    ts = int(data["f124"])
+    if price <= 0 or ts < 1500000000:
+        raise ValueError("invalid quote")
+    return {"price": price, "timestamp": ts}
+
+def tencent(code):
+    url = "https://qt.gtimg.cn/q=" + market(code) + code
+    payload = get_text(url)
+    match = re.search(r'="([^"]+)"', payload)
+    if not match:
+        raise ValueError("missing quote")
+    fields = match.group(1).split("~")
+    if len(fields) < 31 or fields[2] != code:
+        raise ValueError("unexpected quote")
+    price = float(fields[3])
+    when = dt.datetime.strptime(fields[30], "%Y%m%d%H%M%S").replace(
+        tzinfo=dt.timezone(dt.timedelta(hours=8)))
+    ts = int(when.timestamp())
+    if price <= 0 or ts < 1500000000:
+        raise ValueError("invalid quote")
+    return {"price": price, "timestamp": ts}
+
+for code in SYMBOLS:
+    for source, fetch in (("eastmoney", eastmoney), ("tencent", tencent)):
         try:
-            rows = fetch_page(universe, page)
-        except RuntimeError as exc:
-            detail = f"{exc} universe {universe_index} page {page}"
-            errors.append(detail)
-            print("Quote fetch failed:", detail)
+            quotes[code] = fetch(code)
             break
-        if not rows:
-            break
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            code = str(row.get("f12", ""))
-            if len(code) != 6 or not code.isdigit():
-                continue
-            try:
-                price = float(row.get("f2"))
-                timestamp = int(row.get("f124"))
-            except (ValueError, TypeError):
-                continue
-            if price <= 0 or timestamp < 1500000000 or timestamp > 4102444800:
-                continue
-            quotes[code] = {"price": price, "timestamp": timestamp}
-        if len(rows) < PAGE_SIZE:
-            break
+        except (OSError, ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            errors.append(f"{code} {source}: {type(exc).__name__}")
+            if source == "eastmoney":
+                time.sleep(0.3)
 
 out = Path("docs/market_quotes.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps({
     "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-    "source": "Eastmoney public market list",
+    "source": "Public per-symbol quotes (Eastmoney / Tencent fallback)",
     "quotes": quotes,
     "errors": errors,
 }, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 print("Public symbols:", len(quotes), "fetch errors:", len(errors))
+print("Quote coverage:", len(quotes), "/", len(SYMBOLS))
 if not quotes:
     print("WARNING: no public quotes fetched; dashboard will display unavailable")
