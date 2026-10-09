@@ -3,6 +3,7 @@
 import datetime as dt
 import json
 import urllib.parse
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -40,7 +41,14 @@ for universe in UNIVERSES:
             if len(rows)<1000:break
             page+=1
         except Exception as exc:
-            errors.append(type(exc).__name__+" page "+str(page))
+            # Avoid logging full URLs, response bodies or any credentials.
+            detail = type(exc).__name__
+            if isinstance(exc, urllib.error.HTTPError):
+                detail += " HTTP " + str(exc.code)
+            elif isinstance(exc, urllib.error.URLError):
+                detail += " reason " + type(exc.reason).__name__
+            errors.append(detail + " universe " + str(UNIVERSES.index(universe)+1) + " page " + str(page))
+            print("Quote fetch failed:", errors[-1])
             break
 out=Path("docs/market_quotes.json")
 out.parent.mkdir(parents=True,exist_ok=True)
