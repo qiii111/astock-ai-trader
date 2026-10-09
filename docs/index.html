@@ -27,7 +27,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <label for="password">登录密码</label><input id="password" type="password" autocomplete="current-password">
 <button id="signin">登录</button><button class="secondary" id="reset">更换数据库配置</button><p id="loginmsg" class="error"></p></section>
 <section class="card hidden" id="private"><h2>我的持仓</h2><p id="who" class="muted"></p><div class="row"><button id="reload">刷新持仓</button><button class="secondary" id="signout">退出登录</button></div>
-<p id="datamsg" class="muted"></p><section aria-label="只读持仓分析"><h2>持仓成本与结构分析（只读）</h2><p class="analysis-note">仅使用已登录账户的持仓数量与平均成本；未接入行情，不代表当前市值或盈亏。基金与股票按各自份额/股数及成本计算。</p><div id="analysis"></div></section><h2>最新行情与浮动盈亏（只读）</h2><p class="analysis-note">行情为 GitHub Pages 上的公开市场快照，不保证实时。点击按钮读取；行情不完整时不显示总盈亏。</p><button class="secondary" id="refreshQuotes">获取最新行情</button><div id="quoteResults" aria-live="polite">尚未查询行情</div><h2>持仓明细</h2><div id="holdings"></div>
+<p id="datamsg" class="muted"></p><section aria-label="只读持仓分析"><h2>持仓成本与结构分析（只读）</h2><p class="analysis-note">仅使用已登录账户的持仓数量与平均成本；未接入行情，不代表当前市值或盈亏。基金与股票按各自份额/股数及成本计算。</p><div id="analysis"></div></section><h2>最新行情与浮动盈亏（只读）</h2><p class="analysis-note">行情为 GitHub Pages 上的公开市场快照，不保证实时。点击按钮读取；行情不完整时不显示总盈亏。</p><button class="secondary" id="refreshQuotes">获取最新行情</button><div id="quoteResults" aria-live="polite">尚未查询行情</div><h2>持仓诊断与风险评估（只读）</h2><p class="analysis-note">根据已登录持仓和公开行情，在本机浏览器计算。集中度是风险提示，不等于卖出建议；没有分红、估值和财报数据时不作基本面评级。</p><div id="portfolioDiagnosis">请先获取最新行情</div><h2>持仓明细</h2><div id="holdings"></div>
 <p class="notice">以下仅记录你已在证券 App 完成的真实成交，不会连接券商或发出订单。保存会修改本网页的持仓数量和平均成本。</p>
 <h2>手动登记成交</h2><label for="tradeSymbol">选择现有持仓</label><select id="tradeSymbol"></select>
 <label for="tradeSide">成交方向</label><select id="tradeSide"><option value="buy">买入</option><option value="sell">卖出</option></select>
@@ -109,10 +109,26 @@ function renderQuotes(rows,quotes){
  el.append(status);const wrap=document.createElement('div');wrap.className='analysis-table';wrap.append(table);el.append(wrap);
  const note=document.createElement('p');note.className='analysis-note';note.textContent='行情由 GitHub Actions 定时抓取第三方公开市场数据并发布，不包含私人持仓。数据可能延迟或缺失；查询不向行情提供方发送你的持仓，不写入数据库。';el.append(note);
 }
+function renderDiagnosis(rows,quotes){
+ const target=$('portfolioDiagnosis');target.replaceChildren();
+ const active=(rows||[]).filter(r=>Number(r.quantity)>0);
+ if(!active.length){target.textContent='暂无持仓';return}
+ const entries=active.map(r=>{const qty=Number(r.quantity),cost=Number(r.avg_cost),q=quotes[r.symbol],price=Number(q?.price),valid=Number.isFinite(qty)&&qty>0&&Number.isFinite(cost)&&cost>=0&&Number.isFinite(price)&&price>0&&q?.time&&Date.now()-q.time.getTime()<=86400000*5&&Date.now()-q.time.getTime()>=-300000;return {r,valid,mv:valid?qty*price:0,base:qty*cost,price}});
+ if(entries.some(x=>!x.valid||!Number.isFinite(x.base))){target.textContent='行情不完整或成本异常，暂不计算仓位诊断，避免误导。';return}
+ const total=entries.reduce((s,x)=>s+x.mv,0);
+ if(total<=0){target.textContent='持仓市值不可用';return}
+ const top=Math.max(...entries.map(x=>x.mv/total))*100;
+ const hhi=entries.reduce((s,x)=>s+Math.pow(x.mv/total,2),0)*10000;
+ const summary=document.createElement('p');summary.className='notice';summary.textContent='最大单只市值占比 '+top.toFixed(1)+'%；集中度指数 HHI '+hhi.toFixed(0)+'（越高表示越集中）。仅衡量持仓市值分布，不衡量行业或成分股重合。';target.append(summary);
+ const wrap=document.createElement('div');wrap.className='analysis-table';const table=document.createElement('table');const head=document.createElement('tr');
+ ['标的','市值占比','浮盈亏率','诊断提示'].forEach(t=>{const th=document.createElement('th');th.textContent=t;head.append(th)});table.append(head);
+ entries.sort((a,b)=>b.mv-a.mv).forEach(x=>{const pct=x.mv/total*100,rate=x.base>0?(x.mv-x.base)/x.base*100:null;const alerts=[];if(pct>=30)alerts.push('单只占比偏高');else if(pct>=20)alerts.push('关注仓位集中');if(rate!==null&&rate<=-10)alerts.push('浮亏较大，复查逻辑');if(rate!==null&&rate>=15)alerts.push('浮盈较大，关注波动');if(!alerts.length)alerts.push('继续跟踪');const tr=document.createElement('tr');[String(x.r.name||x.r.symbol)+' ('+x.r.symbol+')',pct.toFixed(1)+'%',rate===null?'成本为零':rate.toFixed(2)+'%',alerts.join('；')].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});table.append(tr)});
+ wrap.append(table);target.append(wrap);const note=document.createElement('p');note.className='analysis-note';note.textContent='阈值仅用于提醒：单只≥20%提示集中、≥30%提示偏高；浮亏≤-10%或浮盈≥15%提示复查。不是买卖信号，不包含行业穿透、股息率、估值或历史回撤。';target.append(note);
+}
 let latestHoldings=[];
 async function refreshQuotes(){
  const id=++quoteRequestId;const btn=$('refreshQuotes');btn.disabled=true;$('quoteResults').textContent='正在获取公开行情…';
- try{const result=await fetchQuotes(latestHoldings);if(id!==quoteRequestId)return;renderQuotes(latestHoldings,result)}
+ try{const result=await fetchQuotes(latestHoldings);if(id!==quoteRequestId)return;renderQuotes(latestHoldings,result);renderDiagnosis(latestHoldings,result)}
  catch(e){if(id===quoteRequestId)$('quoteResults').textContent='行情获取失败，请稍后再试'}
  finally{if(id===quoteRequestId)btn.disabled=false}
 }
@@ -132,7 +148,7 @@ try{const {data:{user},error:authError}=await client.auth.getUser();if(authError
 const {data,error}=await client.from('portfolio_positions').select('*').eq('user_id',user.id).limit(100);
 if(error)throw error;
 $('tradeSymbol').replaceChildren();(data||[]).forEach(r=>{const o=document.createElement('option');o.value=r.symbol;o.textContent=r.symbol+' '+(r.name||'');$('tradeSymbol').append(o)});await loadTrades();
-renderAnalysis(data);latestHoldings=data||[];$('quoteResults').textContent='尚未查询行情，请点击获取最新行情';
+renderAnalysis(data);latestHoldings=data||[];$('quoteResults').textContent='尚未查询行情，请点击获取最新行情';$('portfolioDiagnosis').textContent='请先获取最新行情';
 if(!data?.length){message('datamsg','当前没有持仓记录。登录验证成功；下一步添加安全录入功能。');return}
 message('datamsg','已读取 '+data.length+' 条私人持仓。');
 const table=document.createElement('table');const columns=Object.keys(data[0]).filter(k=>!['user_id','id','created_at','updated_at'].includes(k));
@@ -145,7 +161,7 @@ async function loadTrades(){const target=$('trades');target.replaceChildren();tr
 $('recordTrade').onclick=async()=>{const button=$('recordTrade');message('trademsg','');const symbol=$('tradeSymbol').value,side=$('tradeSide').value,qty=Number($('tradeQty').value),price=Number($('tradePrice').value);if(!/^\\d{6}$/.test(symbol)||!Number.isSafeInteger(qty)||qty<=0||!Number.isFinite(price)||price<0||$('tradePrice').value.trim()===''){message('trademsg','请填写有效的股票、正整数数量和非负成交价');return}const action=side==='buy'?'买入':'卖出';if(!confirm('仅登记已实际成交的交易，不会向券商下单。\\n'+action+' '+symbol+'，数量 '+qty+'，单价 '+price+' 元。\\n保存后会更新网页持仓。确认吗？'))return;button.disabled=true;try{const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw Error('请重新登录');const {error}=await client.rpc('record_portfolio_trade',{p_symbol:symbol,p_side:side,p_quantity:qty,p_price:price});if(error)throw error;message('trademsg','登记成功，持仓与成交记录已更新。');$('tradeQty').value='';$('tradePrice').value='';await loadHoldings()}catch(e){message('trademsg','登记失败：'+safeErr(e))}finally{button.disabled=false}};
 $('reloadTrades').onclick=loadTrades;
 $('reload').onclick=loadHoldings;
-$('signout').onclick=async()=>{await client?.auth.signOut();show('private',false);show('login',true);$('holdings').replaceChildren();latestHoldings=[];$('quoteResults').replaceChildren()};
+$('signout').onclick=async()=>{await client?.auth.signOut();show('private',false);show('login',true);$('holdings').replaceChildren();latestHoldings=[];$('quoteResults').replaceChildren();$('portfolioDiagnosis').replaceChildren()};
 $('reset').onclick=()=>{localStorage.removeItem('astock_supabase_public_config');location.reload()};
 try{const saved=JSON.parse(localStorage.getItem('astock_supabase_public_config')||'null');if(saved?.url&&saved?.key){$('url').value=saved.url;$('key').value=saved.key;await initialize(saved.url,saved.key)}}catch(e){message('setupmsg',safeErr(e))}
 fetch('data.json?'+Date.now()).then(r=>r.json()).then(d=>message('stamp','公开页面更新：'+(d.generated_at||'暂无'))).catch(()=>message('stamp','公开数据尚未更新'));
