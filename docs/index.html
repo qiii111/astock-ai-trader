@@ -1,5 +1,25 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>模拟交易控制台</title><style>body{font:16px system-ui;background:#f5f7fb;margin:0;color:#25334a}header{background:#1b355c;color:white;padding:24px}main{max-width:700px;margin:auto;padding:18px}.card{background:white;border-radius:16px;padding:18px;margin:15px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.metric{background:#f2f5fb;padding:12px;border-radius:10px}small{color:#708096}b{font-size:22px}table{width:100%;font-size:13px}td,th{text-align:left;padding:7px;border-bottom:1px solid #eee}</style><header><h2>A股模拟交易控制台</h2>仅虚拟资金 · 非真实交易</header><main><div id="content">正在加载数据…</div></main><script>
-const fmt=n=>'¥'+Number(n||0).toFixed(2);
-const el=document.getElementById('content');
-fetch('data.json?'+Date.now()).then(r=>{if(!r.ok)throw Error('尚未生成数据');return r.json()}).then(d=>{el.replaceChildren();const note=document.createElement('p');note.textContent='数据更新：'+d.generated_at;el.append(note);for(const a of d.accounts){const s=document.createElement('section');s.className='card';const h=document.createElement('h3');h.textContent=a.label;s.append(h);const g=document.createElement('div');g.className='grid';for(const [label,val] of [['总资产',fmt(a.total)],['现金',fmt(a.cash)],['持仓估值',fmt(a.market_value)],['累计收益',a.return_pct+'%']]){const x=document.createElement('div');x.className='metric';const t=document.createElement('small');t.textContent=label;const v=document.createElement('div');const b=document.createElement('b');b.textContent=val;v.append(b);x.append(t,v);g.append(x)}s.append(g);const p=document.createElement('p');p.textContent='估值日期：'+(a.valuation_date||'暂无');s.append(p);for(const [label,rows,cols] of [['持仓',a.positions,['code','name','shares','avg_cost']],['最近成交',a.trades,['date','action','name','shares','price']]]){const title=document.createElement('h4');title.textContent=label;s.append(title);const table=document.createElement('table');for(const row of rows){const tr=document.createElement('tr');for(const c of cols){const td=document.createElement('td');td.textContent=row[c]??'-';tr.append(td)}table.append(tr)}if(!rows.length)table.textContent='暂无记录';s.append(table)}el.append(s)}const end=document.createElement('p');end.textContent='本页面为公开模拟盘快照，不包含数据库密码。';el.append(end)}).catch(e=>el.textContent='数据尚未发布：'+e.message);
-</script>
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A股行情研究台</title>
+<style>
+body{font:16px system-ui,-apple-system,sans-serif;background:#f4f6fa;color:#24324a;margin:0}
+header{background:#1d365d;color:white;padding:25px 20px}
+main{max-width:740px;margin:auto;padding:20px}
+section{background:white;border-radius:16px;padding:22px;margin-bottom:16px;box-shadow:0 2px 12px #15233a0a}
+h1{font-size:23px;margin:0 0 10px}h2{font-size:19px}
+p{line-height:1.7}small{color:#607089}
+.tag{display:inline-block;background:#e9f1ff;color:#22569a;border-radius:7px;padding:6px 10px}
+</style></head><body>
+<header><h1>A股行情与机会研究台</h1>公开页面 · 只展示非敏感信息</header>
+<main>
+<section><span class="tag">隐私保护已开启</span>
+<h2>真实持仓不在公开网页展示</h2>
+<p>持仓数量、买入成本、账户资金、盈亏及成交记录均不从数据库导出到 GitHub Pages。</p>
+<p>后续可在这里添加公开行情、市场观察和候选标的分析。建议由你在证券账户中自主决定并执行交易。</p></section>
+<section><h2>交易记录与私人持仓</h2><p>私人账本功能正在改造中，尚未提供安全的在线录入入口。请勿在本公开网页输入账户或交易信息。</p>
+<small id="stamp">正在读取公开数据更新日期…</small></section>
+</main><script>
+fetch('data.json?'+Date.now()).then(r=>r.json()).then(d=>{
+document.getElementById('stamp').textContent='公开页面更新：'+(d.generated_at||'暂无');
+}).catch(()=>{document.getElementById('stamp').textContent='公开页面数据尚未更新';});
+</script></body></html>
