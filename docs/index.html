@@ -27,7 +27,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <label for="password">登录密码</label><input id="password" type="password" autocomplete="current-password">
 <button id="signin">登录</button><button class="secondary" id="reset">更换数据库配置</button><p id="loginmsg" class="error"></p></section>
 <section class="card hidden" id="private"><h2>我的持仓</h2><p id="who" class="muted"></p><div class="row"><button id="reload">刷新持仓</button><button class="secondary" id="signout">退出登录</button></div>
-<p id="datamsg" class="muted"></p><section aria-label="只读持仓分析"><h2>持仓成本与结构分析（只读）</h2><p class="analysis-note">仅使用已登录账户的持仓数量与平均成本；未接入行情，不代表当前市值或盈亏。基金与股票按各自份额/股数及成本计算。</p><div id="analysis"></div></section><h2>持仓明细</h2><div id="holdings"></div>
+<p id="datamsg" class="muted"></p><section aria-label="只读持仓分析"><h2>持仓成本与结构分析（只读）</h2><p class="analysis-note">仅使用已登录账户的持仓数量与平均成本；未接入行情，不代表当前市值或盈亏。基金与股票按各自份额/股数及成本计算。</p><div id="analysis"></div></section><h2>最新行情与浮动盈亏（只读）</h2><p class="analysis-note">行情为第三方公开数据，不保证实时。点击按钮主动查询；行情不完整时不显示总盈亏。</p><button class="secondary" id="refreshQuotes">获取最新行情</button><div id="quoteResults" aria-live="polite">尚未查询行情</div><h2>持仓明细</h2><div id="holdings"></div>
 <p class="notice">以下仅记录你已在证券 App 完成的真实成交，不会连接券商或发出订单。保存会修改本网页的持仓数量和平均成本。</p>
 <h2>手动登记成交</h2><label for="tradeSymbol">选择现有持仓</label><select id="tradeSymbol"></select>
 <label for="tradeSide">成交方向</label><select id="tradeSide"><option value="buy">买入</option><option value="sell">卖出</option></select>
@@ -58,6 +58,63 @@ $('demoReset').onclick=()=>{demo=demoInitial();message('demoMsg','虚拟数据�
 
 function renderAnalysis(data){const target=$('analysis');target.replaceChildren();const rows=(data||[]).map(r=>({name:String(r.name||r.symbol||'未知'),symbol:String(r.symbol||''),qty:Number(r.quantity),cost:Number(r.avg_cost)}));const valid=rows.filter(r=>Number.isFinite(r.qty)&&r.qty>=0&&Number.isFinite(r.cost)&&r.cost>=0&&Number.isFinite(r.qty*r.cost));if(!rows.length){target.textContent='暂无可分析持仓';return}if(valid.length!==rows.length){target.textContent='部分持仓数量或成本无效，已暂停分析以免显示错误数据。';return}const invested=valid.reduce((n,r)=>n+r.qty*r.cost,0);const active=valid.filter(r=>r.qty>0);const fmt=n=>'¥'+n.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});const grid=document.createElement('div');grid.className='analysis-grid';[['持仓成本合计',fmt(invested)],['当前持仓标的',active.length+' 只'],['最大成本占比',invested>0?(Math.max(...active.map(r=>r.qty*r.cost))/invested*100).toFixed(1)+'%':'—'],['实时市值 / 浮动盈亏','待接入行情']].forEach(([k,v])=>{const d=document.createElement('div');d.className='metric';const a=document.createElement('small');a.textContent=k;const b=document.createElement('strong');b.textContent=v;d.append(a,b);grid.append(d)});target.append(grid);const wrap=document.createElement('div');wrap.className='analysis-table';const table=document.createElement('table');const head=document.createElement('tr');['标的','持仓成本金额','成本占比'].forEach(t=>{const th=document.createElement('th');th.textContent=t;head.append(th)});table.append(head);active.sort((a,b)=>b.qty*b.cost-a.qty*a.cost).forEach(r=>{const tr=document.createElement('tr');const amount=r.qty*r.cost;const pct=invested>0?amount/invested*100:0;const name=document.createElement('td');name.textContent=r.name+' ('+r.symbol+')';const value=document.createElement('td');value.textContent=fmt(amount);const share=document.createElement('td');share.textContent=pct.toFixed(1)+'%';const bar=document.createElement('div');bar.className='bar';const fill=document.createElement('span');fill.style.width=Math.max(0,Math.min(100,pct))+'%';bar.append(fill);share.append(bar);tr.append(name,value,share);table.append(tr)});wrap.append(table);target.append(wrap);const note=document.createElement('p');note.className='analysis-note';note.textContent='成本占比 = 单只持仓数量 × 平均成本 ÷ 全部持仓成本合计；不含现金、交易费用或已实现盈亏。';target.append(note)}
 
+
+let quoteRequestId=0;
+async function fetchQuotes(rows){
+ const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),9000);
+ try{
+  const symbols=rows.map(r=>r.symbol);const out={};
+  await Promise.all(symbols.map(async symbol=>{
+   if(!/^\\d{6}$/.test(symbol))return;
+   const secid=(/^[569]/.test(symbol)?'1.':'0.')+symbol;
+   const url='https://push2.eastmoney.com/api/qt/stock/get?secid='+encodeURIComponent(secid)+'&fields=f43,f57,f58,f86,f124&ut=fa5fd1943c7b386f172d6893dbfba10b2';
+   try{
+    const response=await fetch(url,{signal:controller.signal,cache:'no-store',credentials:'omit'});
+    if(!response.ok)throw Error('HTTP '+response.status);
+    const json=await response.json();const d=json?.data;
+    if(!d||String(d.f57)!==symbol)throw Error('行情代码不匹配');
+    const raw=Number(d.f43);const price=raw/1000;
+    if(!Number.isFinite(price)||price<=0)throw Error('无有效行情价格');
+    const epoch=Number(d.f124)||Number(d.f86);
+    const time=Number.isFinite(epoch)&&epoch>1500000000&&epoch<4102444800?new Date(epoch*1000):null;
+    out[symbol]={price,time};
+   }catch(e){out[symbol]={error:e?.name==='AbortError'?'请求超时':'行情接口不可用或浏览器跨域限制'}}
+  }));
+  return out;
+ }finally{clearTimeout(timer)}
+}
+function renderQuotes(rows,quotes){
+ const el=$('quoteResults');el.replaceChildren();
+ if(!rows?.length){el.textContent='暂无持仓';return}
+ const fmt=n=>'¥'+n.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+ const table=document.createElement('table');const head=document.createElement('tr');
+ ['标的','行情价','行情时间','市值','浮动盈亏','收益率'].forEach(t=>{const th=document.createElement('th');th.textContent=t;head.append(th)});table.append(head);
+ let market=0,cost=0,covered=0;const valid=rows.filter(r=>Number(r.quantity)>0);
+ for(const r of valid){
+  const q=quotes[r.symbol];const qty=Number(r.quantity),avg=Number(r.avg_cost),base=qty*avg;
+  const good=q&&Number.isFinite(q.price)&&q.price>0&&Number.isFinite(base)&&base>=0&&q.time&&Date.now()-q.time.getTime()>=-300000&&Date.now()-q.time.getTime()<=86400000*5;
+  const mv=good?qty*q.price:NaN,pnl=mv-base,rate=base>0?pnl/base*100:NaN;
+  if(good){market+=mv;cost+=base;covered++}
+  const tr=document.createElement('tr');
+  const vals=[(r.name||r.symbol)+' ('+r.symbol+')',good?fmt(q.price):'不可用',good?q.time.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})+' 北京时间':'—',good?fmt(mv):'—',good?fmt(pnl):'—',good&&Number.isFinite(rate)?rate.toFixed(2)+'%':'—'];
+  vals.forEach((v,i)=>{const td=document.createElement('td');td.textContent=v;if(i===4&&good)td.style.color=pnl>=0?'#a42a2a':'#14735b';tr.append(td)});table.append(tr);
+ }
+ const status=document.createElement('p');status.className='analysis-note';
+ if(covered===valid.length&&covered>0){
+  const profit=market-cost;status.textContent='行情覆盖 '+covered+'/'+valid.length+' 只；持仓市值 '+fmt(market)+'；浮动盈亏 '+fmt(profit)+'；收益率 '+(cost>0?(profit/cost*100).toFixed(2)+'%':'—')+'。按最新可获取行情估算，可能延迟，不含手续费。';
+ }else status.textContent='行情覆盖 '+covered+'/'+valid.length+' 只；部分行情不可用或超过5天，已停止展示总市值和总盈亏，避免误导。';
+ el.append(status);const wrap=document.createElement('div');wrap.className='analysis-table';wrap.append(table);el.append(wrap);
+ const note=document.createElement('p');note.className='analysis-note';note.textContent='行情来自第三方公开接口，可能延迟或因浏览器跨域限制失败；查询会向行情提供方发送股票代码。无交易权限、不写入数据库。';el.append(note);
+}
+let latestHoldings=[];
+async function refreshQuotes(){
+ const id=++quoteRequestId;const btn=$('refreshQuotes');btn.disabled=true;$('quoteResults').textContent='正在获取公开行情…';
+ try{const result=await fetchQuotes(latestHoldings);if(id!==quoteRequestId)return;renderQuotes(latestHoldings,result)}
+ catch(e){if(id===quoteRequestId)$('quoteResults').textContent='行情获取失败，请稍后再试'}
+ finally{if(id===quoteRequestId)btn.disabled=false}
+}
+$('refreshQuotes').onclick=refreshQuotes;
+
 function show(id,yes){$(id).classList.toggle('hidden',!yes)}
 function message(id,value){$(id).textContent=value||''}
 function safeErr(e){return e?.message||String(e)}
@@ -72,7 +129,7 @@ try{const {data:{user},error:authError}=await client.auth.getUser();if(authError
 const {data,error}=await client.from('portfolio_positions').select('*').eq('user_id',user.id).limit(100);
 if(error)throw error;
 $('tradeSymbol').replaceChildren();(data||[]).forEach(r=>{const o=document.createElement('option');o.value=r.symbol;o.textContent=r.symbol+' '+(r.name||'');$('tradeSymbol').append(o)});await loadTrades();
-renderAnalysis(data);
+renderAnalysis(data);latestHoldings=data||[];$('quoteResults').textContent='尚未查询行情，请点击获取最新行情';
 if(!data?.length){message('datamsg','当前没有持仓记录。登录验证成功；下一步添加安全录入功能。');return}
 message('datamsg','已读取 '+data.length+' 条私人持仓。');
 const table=document.createElement('table');const columns=Object.keys(data[0]).filter(k=>!['user_id','id','created_at','updated_at'].includes(k));
@@ -85,7 +142,7 @@ async function loadTrades(){const target=$('trades');target.replaceChildren();tr
 $('recordTrade').onclick=async()=>{const button=$('recordTrade');message('trademsg','');const symbol=$('tradeSymbol').value,side=$('tradeSide').value,qty=Number($('tradeQty').value),price=Number($('tradePrice').value);if(!/^\\d{6}$/.test(symbol)||!Number.isSafeInteger(qty)||qty<=0||!Number.isFinite(price)||price<0||$('tradePrice').value.trim()===''){message('trademsg','请填写有效的股票、正整数数量和非负成交价');return}const action=side==='buy'?'买入':'卖出';if(!confirm('仅登记已实际成交的交易，不会向券商下单。\\n'+action+' '+symbol+'，数量 '+qty+'，单价 '+price+' 元。\\n保存后会更新网页持仓。确认吗？'))return;button.disabled=true;try{const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)throw Error('请重新登录');const {error}=await client.rpc('record_portfolio_trade',{p_symbol:symbol,p_side:side,p_quantity:qty,p_price:price});if(error)throw error;message('trademsg','登记成功，持仓与成交记录已更新。');$('tradeQty').value='';$('tradePrice').value='';await loadHoldings()}catch(e){message('trademsg','登记失败：'+safeErr(e))}finally{button.disabled=false}};
 $('reloadTrades').onclick=loadTrades;
 $('reload').onclick=loadHoldings;
-$('signout').onclick=async()=>{await client?.auth.signOut();show('private',false);show('login',true);$('holdings').replaceChildren()};
+$('signout').onclick=async()=>{await client?.auth.signOut();show('private',false);show('login',true);$('holdings').replaceChildren();latestHoldings=[];$('quoteResults').replaceChildren()};
 $('reset').onclick=()=>{localStorage.removeItem('astock_supabase_public_config');location.reload()};
 try{const saved=JSON.parse(localStorage.getItem('astock_supabase_public_config')||'null');if(saved?.url&&saved?.key){$('url').value=saved.url;$('key').value=saved.key;await initialize(saved.url,saved.key)}}catch(e){message('setupmsg',safeErr(e))}
 fetch('data.json?'+Date.now()).then(r=>r.json()).then(d=>message('stamp','公开页面更新：'+(d.generated_at||'暂无'))).catch(()=>message('stamp','公开数据尚未更新'));
