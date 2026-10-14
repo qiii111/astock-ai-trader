@@ -80,6 +80,18 @@ function renderResearch(){
   else if(Number(r.return_20d_pct)<=-8||Number(r.volatility_20d_annual_pct)>=40){signal.textContent='信号：暂不考虑';signal.classList.add('signal-risk');reason.textContent='触发研究风控阈值：20日跌幅不小于8%或年化波动不低于40%；并非价格预测。'}
   else if(fundamentalsComplete){signal.textContent='信号：继续观察';signal.classList.add('signal-watch');reason.textContent='财务数据已具备，但仍须完成估值分位、盈利和分红持续性校验，暂不触发买入候选。'}
   else{signal.textContent='信号：继续观察';signal.classList.add('signal-watch');reason.textContent='走势可供研究，但缺少经核验的财报、股息率或ROE，买入条件未满足。'}
+  if(r.technical&&available){
+    const t=r.technical, detail=document.createElement('div');detail.className='analysis-note';
+    const macd=t.macd||{},kdj=t.kdj||{},ma=t.ma||{};
+    const lines=[
+      'MACD：DIF '+(macd.dif??'—')+' / DEA '+(macd.dea??'—')+' / 柱 '+(macd.histogram??'—')+'；'+(macd.cross||'—')+'；'+(macd.position||'—')+'；动能'+(macd.momentum||'—'),
+      'KDJ：K '+(kdj.k??'—')+' / D '+(kdj.d??'—')+' / J '+(kdj.j??'—')+'；'+(kdj.cross||'—')+'；'+(kdj.zone||'—')+'；'+(kdj.direction||'—'),
+      '均线：MA5 '+(ma['5']??'—')+' / MA10 '+(ma['10']??'—')+' / MA20 '+(ma['20']??'—')+' / MA60 '+(ma['60']??'—'),
+      '量能：近5日均量/20日均量 '+(t.volume_ratio_5_20??'—')+'；资金净流入：待接入可靠数据'
+    ];
+    lines.forEach(s=>{const p=document.createElement('p');p.textContent=s;detail.append(p)});
+    const date=document.createElement('small');date.textContent='技术指标截至：'+(r.as_of||'未知')+'；按历史日线计算，非盘中信号';detail.append(date);card.append(detail);
+  }
   card.append(signal,reason);cards.append(card);
  });board.append(cards);
  const rule=document.createElement('p');rule.className='analysis-note';rule.textContent='买入候选信号预留：须同时通过财报质量、估值合理性、分红/盈利持续性、走势和数据时效核验；当前数据源不足，系统不会虚构买入信号。暂不考虑阈值仅用于筛查，不是卖出指令。';board.append(rule);
