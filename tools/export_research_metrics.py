@@ -52,13 +52,13 @@ def stock_fundamentals(code):
 def history(code):
     # Tencent daily-adjusted? qfq history is adjusted; used for percentage changes only.
     symbol = market(code) + code
-    url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=" + symbol + ",day,,,65,qfq"
+    url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=" + symbol + ",day,,,130,qfq"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=12) as res:
         payload = json.load(res)
     data = (payload.get("data") or {}).get(symbol) or {}
     candles = data.get("qfqday") or data.get("day") or []
-    series = []
+    series = []\n    ohlcv = []
     for row in candles:
         try:
             date = dt.date.fromisoformat(row[0])
@@ -67,8 +67,8 @@ def history(code):
                 series.append((date, close))
         except (ValueError, TypeError, IndexError):
             continue
-    series.sort()
-    if len(series) < 21:
+    series.sort()\n    ohlcv.sort()
+    if len(series) < 60:
         raise ValueError("insufficient history")
     closes = [v for _, v in series]
     daily = [closes[i] / closes[i-1] - 1 for i in range(1, len(closes))]
