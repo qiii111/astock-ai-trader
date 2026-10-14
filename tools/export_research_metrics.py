@@ -58,16 +58,20 @@ def history(code):
         payload = json.load(res)
     data = (payload.get("data") or {}).get(symbol) or {}
     candles = data.get("qfqday") or data.get("day") or []
-    series = []\n    ohlcv = []
+    series = []
+    ohlcv = []
     for row in candles:
         try:
             date = dt.date.fromisoformat(row[0])
             close = float(row[2])
-            if close > 0 and math.isfinite(close):
+            high, low, volume = float(row[3]), float(row[4]), float(row[5])
+            if close > 0 and low > 0 and high >= low and volume >= 0 and all(math.isfinite(v) for v in (close, high, low, volume)):
                 series.append((date, close))
+                ohlcv.append((date, high, low, volume))
         except (ValueError, TypeError, IndexError):
             continue
-    series.sort()\n    ohlcv.sort()
+    series.sort()
+    ohlcv.sort()
     if len(series) < 60:
         raise ValueError("insufficient history")
     closes = [v for _, v in series]
@@ -75,7 +79,45 @@ def history(code):
     recent = daily[-20:]
     avg = sum(recent) / len(recent)
     vol = (sum((v-avg)**2 for v in recent) / len(recent)) ** 0.5 * (252**0.5) * 100
+    def ema(values, n):
+        a = 2 / (n + 1)
+        result = [values[0]]
+        for v in values[1:]:
+            result.append(a * v + (1 - a) * result[-1])
+        return result
+    fast, slow = ema(closes, 12), ema(closes, 26)
+    dif = [a - b for a, b in zip(fast, slow)]
+    dea = ema(dif, 9)
+    bars = [2 * (a - b) for a, b in zip(dif, dea)]
+    k, d, kdjs = 50.0, 50.0, []
+    for i, close in enumerate(closes):
+        window = ohlcv[max(0, i - 8):i + 1]
+        high = max(x[1] for x in window)
+        low = min(x[2] for x in window)
+        rsv = 50 if high == low else (close - low) / (high - low) * 100
+        k = 2 * k / 3 + rsv / 3
+        d = 2 * d / 3 + k / 3
+        kdjs.append((k, d, 3 * k - 2 * d))
+    def cross(a0, b0, a1, b1):
+        return "金叉" if a0 <= b0 and a1 > b1 else ("死叉" if a0 >= b0 and a1 < b1 else "无新交叉")
+    volumes = [x[3] for x in ohlcv]
+    technical = {
+        "macd": {"dif": round(dif[-1], 4), "dea": round(dea[-1], 4),
+                 "histogram": round(bars[-1], 4),
+                 "cross": cross(dif[-2], dea[-2], dif[-1], dea[-1]),
+                 "position": "零轴上方" if dif[-1] > 0 else "零轴下方",
+                 "momentum": "增强" if bars[-1] > bars[-2] else "减弱"},
+        "kdj": {"k": round(kdjs[-1][0], 2), "d": round(kdjs[-1][1], 2),
+                "j": round(kdjs[-1][2], 2),
+                "cross": cross(kdjs[-2][0], kdjs[-2][1], kdjs[-1][0], kdjs[-1][1]),
+                "direction": "向上" if kdjs[-1][0] > kdjs[-2][0] else "向下",
+                "zone": "超买区域" if kdjs[-1][1] >= 80 else ("超卖区域" if kdjs[-1][1] <= 20 else "中性区域")},
+        "ma": {str(n): round(sum(closes[-n:]) / n, 3) for n in (5, 10, 20, 60)},
+        "volume_ratio_5_20": round((sum(volumes[-5:]) / 5) / (sum(volumes[-20:]) / 20), 2) if sum(volumes[-20:]) else None,
+        "capital_flow": None
+    }
     return {
+        "technical": technical,
         "as_of": series[-1][0].isoformat(),
         "return_20d_pct": round((closes[-1] / closes[-21] - 1) * 100, 2),
         "volatility_20d_annual_pct": round(vol, 2),
